@@ -11,7 +11,6 @@ class AuthService {
   static const _emailKey = 'user_google_email';
   static const _recoveryEmailKey = 'recovery_email';
   static const _pinKey = 'jarvis_pin';
-  static const _biometricKey = 'biometric_lock_enabled';
   static const _biometricChannel =
       MethodChannel('com.ultimate.jarvis/biometric');
 
@@ -41,10 +40,7 @@ class AuthService {
         (prefs.getBool(_onboardedKey) ?? false);
   }
 
-  static Future<String?> simulateGoogleSignIn() async {
-    await Future.delayed(const Duration(milliseconds: 600));
-    return 'user.princesingh@gmail.com';
-  }
+  static Future<String?> simulateGoogleSignIn() async => null;
 
   Future<String?> get registeredEmail async {
     final prefs = await getPrefs();
@@ -84,9 +80,9 @@ class AuthService {
     try {
       return await _biometricChannel
               .invokeMethod<bool>('authenticateBiometric') ??
-          true;
+          false;
     } catch (_) {
-      return true;
+      return false;
     }
   }
 
@@ -99,7 +95,7 @@ class AuthService {
       return true;
     } catch (e) {
       debugPrint('Google Sign-In exception: $e');
-      return true;
+      return false;
     }
   }
 }

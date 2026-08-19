@@ -69,7 +69,6 @@ class MeshService {
   }
 
   static const _mesh = MethodChannel('com.ultimate.jarvis/mesh');
-  static const _events = EventChannel('com.ultimate.jarvis/mesh_events');
   static const _idKey = 'mesh_device_id';
   static const _nameKey = 'mesh_device_name';
   static const _codeKey = 'device_pair_code';
@@ -79,7 +78,7 @@ class MeshService {
   final MeshRelayService _relay = MeshRelayService();
   final Map<String, String> _relaySessions = <String, String>{};
   final Map<String, String> _relayRequests = <String, String>{};
-  StreamSubscription<dynamic>? _eventSubscription;
+  bool _nativeHandlerAttached = false;
   Timer? _relayTimer;
   bool _started = false;
 
@@ -114,27 +113,36 @@ class MeshService {
 
   Future<void> start() async {
     if (!_started) {
-      _eventSubscription = _events.receiveBroadcastStream().listen(
-            _handleNativeEvent,
-            onError: (Object error, StackTrace stack) => _eventController.add(
-              MeshEvent('transport_error', {'message': error.toString()}),
-            ),
-          );
+      if (!_nativeHandlerAttached) {
+        _mesh.setMethodCallHandler((call) async {
+          final args = call.arguments is Map
+              ? Map<String, dynamic>.from(call.arguments as Map)
+              : <String, dynamic>{};
+          await _handleNativeEvent({'type': call.method, ...args});
+          return null;
+        });
+        _nativeHandlerAttached = true;
+      }
       _started = true;
       await _loadRelaySessions();
       _relayTimer =
           Timer.periodic(const Duration(seconds: 4), (_) => _pollRelay());
     }
-    await _mesh.invokeMethod<void>('start', {
+    await _mesh.invokeMethod<dynamic>('start', {
       'deviceId': await deviceId,
       'deviceName': await deviceName,
       'pairingCode': await pairingCode,
     });
   }
 
-  Future<bool> discover() async {
+  Future<List<MeshDevice>> discover() async {
     await start();
-    return await _mesh.invokeMethod<bool>('startDiscovery') ?? false;
+    final raw = await _mesh.invokeMethod<List<dynamic>>('startDiscovery') ??
+        <dynamic>[];
+    return raw
+        .whereType<Map>()
+        .map((entry) => MeshDevice.fromMap(entry))
+        .toList();
   }
 
   Future<Map<String, dynamic>> connect({
@@ -143,7 +151,7 @@ class MeshService {
     String? sessionToken,
   }) async {
     await start();
-    final raw = await _mesh.invokeMethod<dynamic>('connect', {
+    final raw = await _mesh.invokeMethod<dynamic>('pairToPeer', {
       'host': device.host,
       'port': device.port,
       'peerId': device.peerId,
@@ -159,12 +167,17 @@ class MeshService {
     required bool approved,
     required bool anytime,
   }) async {
-    return await _mesh.invokeMethod<bool>('approvePair', {
-          'requestId': requestId,
-          'approved': approved,
-          'anytime': anytime,
-        }) ??
-        false;
+    final raw = await _mesh.invokeMethod<dynamic>(
+      approved ? 'approvePairRequest' : 'rejectPairRequest',
+      {
+        'requestId': requestId,
+        'allowAnytime': anytime,
+      },
+    );
+    final response = normalizeConnectResult(raw);
+    return approved
+        ? response['status'] == 'approved'
+        : response['status'] == 'rejected';
   }
 
   Future<String> send({
@@ -240,15 +253,12 @@ class MeshService {
 
   Future<void> stop() async {
     await _mesh.invokeMethod<void>('stop');
-    await _eventSubscription?.cancel();
-    _eventSubscription = null;
     _relayTimer?.cancel();
     _relayTimer = null;
     _started = false;
   }
 
   void dispose() {
-    _eventSubscription?.cancel();
     _relayTimer?.cancel();
     _relay.dispose();
     _eventController.close();

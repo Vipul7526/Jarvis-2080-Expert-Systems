@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:url_launcher/url_launcher.dart';
 import 'services/auth_service.dart';
 import 'services/mesh_service.dart';
 import 'services/system_service.dart';
@@ -91,9 +93,19 @@ class _AuthGateState extends State<AuthGate> {
   }
 }
 
+enum JarvisVisualState { idle, listening, thinking, talking }
+
 class HolographicCore extends StatefulWidget {
   final double size;
-  const HolographicCore({Key? key, this.size = 170}) : super(key: key);
+  final JarvisVisualState state;
+  final double intensity;
+
+  const HolographicCore({
+    Key? key,
+    this.size = 220,
+    this.state = JarvisVisualState.idle,
+    this.intensity = 0.55,
+  }) : super(key: key);
 
   @override
   State<HolographicCore> createState() => _HolographicCoreState();
@@ -103,8 +115,21 @@ class _HolographicCoreState extends State<HolographicCore>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: const Duration(seconds: 4),
+    duration: const Duration(seconds: 12),
   )..repeat();
+
+  Color get _accent {
+    switch (widget.state) {
+      case JarvisVisualState.listening:
+        return const Color(0xFF32F5FF);
+      case JarvisVisualState.thinking:
+        return const Color(0xFFA970FF);
+      case JarvisVisualState.talking:
+        return const Color(0xFFFFB86B);
+      case JarvisVisualState.idle:
+        return const Color(0xFF00F5FF);
+    }
+  }
 
   @override
   void dispose() {
@@ -118,7 +143,8 @@ class _HolographicCoreState extends State<HolographicCore>
       animation: _controller,
       builder: (context, child) {
         final phase = _controller.value * math.pi * 2;
-        final pulse = 1 + math.sin(phase) * 0.06;
+        final pulse =
+            1 + math.sin(phase * 2) * (0.028 + widget.intensity * 0.045);
         return SizedBox(
           width: widget.size,
           height: widget.size,
@@ -126,69 +152,85 @@ class _HolographicCoreState extends State<HolographicCore>
             alignment: Alignment.center,
             children: [
               Container(
-                width: widget.size * 0.96,
-                height: widget.size * 0.96,
+                width: widget.size * (0.96 + math.sin(phase) * 0.025),
+                height: widget.size * (0.96 + math.sin(phase) * 0.025),
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  border: Border.all(
-                      color: const Color(0xFF00F5FF).withOpacity(0.26),
-                      width: 1),
+                  gradient: RadialGradient(
+                    colors: [_accent.withOpacity(0.20), Colors.transparent],
+                  ),
                   boxShadow: [
                     BoxShadow(
-                        color: const Color(0xFF00F5FF).withOpacity(0.16),
-                        blurRadius: 32,
-                        spreadRadius: 8),
+                      color:
+                          _accent.withOpacity(0.20 + widget.intensity * 0.18),
+                      blurRadius: 42,
+                      spreadRadius: 10,
+                    ),
                   ],
                 ),
               ),
+              CustomPaint(
+                size: Size(widget.size, widget.size),
+                painter: _ParticleSpherePainter(
+                  phase: phase,
+                  color: _accent,
+                  intensity: widget.intensity,
+                ),
+              ),
               Transform.rotate(
-                angle: phase * 0.35,
-                child: Container(
-                  width: widget.size * 0.78,
-                  height: widget.size * 0.78,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                        color: const Color(0xFF00F5FF).withOpacity(0.70),
-                        width: 1.8),
-                  ),
-                  child: CustomPaint(painter: _HolographicGridPainter(phase)),
+                angle: phase * 0.22,
+                child: CustomPaint(
+                  size: Size(widget.size * 0.94, widget.size * 0.94),
+                  painter: _OrbitRingPainter(color: _accent, phase: phase),
                 ),
               ),
               Transform.scale(
                 scale: pulse,
                 child: Container(
-                  width: widget.size * 0.42,
-                  height: widget.size * 0.42,
+                  width: widget.size * 0.26,
+                  height: widget.size * 0.26,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    gradient: const RadialGradient(
+                    gradient: RadialGradient(
                       colors: [
-                        Color(0xFFE8FFFF),
-                        Color(0xFF00F5FF),
-                        Color(0xFF006A88)
+                        Colors.white,
+                        _accent,
+                        _accent.withOpacity(0.18)
                       ],
+                      stops: const [0.0, 0.28, 1.0],
                     ),
                     boxShadow: [
                       BoxShadow(
-                          color: const Color(0xFF00F5FF).withOpacity(0.95),
-                          blurRadius: 28,
-                          spreadRadius: 4),
+                        color: _accent.withOpacity(0.95),
+                        blurRadius: 30 + widget.intensity * 18,
+                        spreadRadius: 5,
+                      ),
                     ],
                   ),
-                  child: const Icon(Icons.shield_outlined,
-                      color: Color(0xFF03101A), size: 38),
+                  child: Icon(
+                    widget.state == JarvisVisualState.listening
+                        ? Icons.mic
+                        : Icons.bolt,
+                    color: const Color(0xFF03101A),
+                    size: widget.size * 0.10,
+                  ),
                 ),
               ),
               Positioned(
-                bottom: 2,
+                bottom: widget.size * 0.045,
                 child: Text(
-                  'CORE ONLINE',
+                  widget.state == JarvisVisualState.listening
+                      ? 'LISTENING'
+                      : widget.state == JarvisVisualState.thinking
+                          ? 'PROCESSING'
+                          : widget.state == JarvisVisualState.talking
+                              ? 'RESPONDING'
+                              : 'CORE ONLINE',
                   style: TextStyle(
-                    color: const Color(0xFF00F5FF).withOpacity(0.9),
-                    fontSize: 9,
+                    color: _accent.withOpacity(0.95),
+                    fontSize: math.max(8, widget.size * 0.043),
                     fontWeight: FontWeight.w700,
-                    letterSpacing: 2.2,
+                    letterSpacing: 2.0,
                   ),
                 ),
               ),
@@ -200,36 +242,76 @@ class _HolographicCoreState extends State<HolographicCore>
   }
 }
 
-class _HolographicGridPainter extends CustomPainter {
+class _ParticleSpherePainter extends CustomPainter {
   final double phase;
-  const _HolographicGridPainter(this.phase);
+  final Color color;
+  final double intensity;
+
+  const _ParticleSpherePainter({
+    required this.phase,
+    required this.color,
+    required this.intensity,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = size.center(Offset.zero);
-    final radius = size.shortestSide / 2;
-    final paint = Paint()
-      ..color = const Color(0xFF00F5FF).withOpacity(0.30)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.8;
-    for (var i = 1; i <= 3; i++) {
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: center,
-          width: radius * 2,
-          height: radius * 2 * (0.22 + i * 0.16 + math.sin(phase + i) * 0.03),
-        ),
-        paint,
-      );
+    final radius = size.shortestSide * 0.36;
+    for (var i = 0; i < 150; i++) {
+      final seed = (i * 0.6180339887) % 1.0;
+      final latitude = math.asin(-1.0 + 2.0 * seed);
+      final longitude = i * 2.3999632297 + phase * (0.28 + seed * 0.22);
+      final depth = math.cos(latitude) * math.cos(longitude);
+      final x = math.cos(latitude) * math.sin(longitude) * radius;
+      final y = math.sin(latitude) * radius;
+      final perspective = 0.72 + 0.28 * ((depth + 1) / 2);
+      final point = Offset(center.dx + x, center.dy + y);
+      final opacity = (0.15 + perspective * 0.75) * (0.72 + intensity * 0.45);
+      final sizeFactor =
+          0.6 + perspective * 1.5 + math.sin(phase * 2 + i) * 0.35;
+      final paint = Paint()..color = color.withOpacity(opacity.clamp(0.0, 1.0));
+      canvas.drawCircle(point, sizeFactor, paint);
     }
-    canvas.drawLine(
-        Offset(center.dx, 0), Offset(center.dx, size.height), paint);
-    canvas.drawLine(Offset(0, center.dy), Offset(size.width, center.dy), paint);
   }
 
   @override
-  bool shouldRepaint(covariant _HolographicGridPainter oldDelegate) =>
-      oldDelegate.phase != phase;
+  bool shouldRepaint(covariant _ParticleSpherePainter oldDelegate) =>
+      oldDelegate.phase != phase ||
+      oldDelegate.color != color ||
+      oldDelegate.intensity != intensity;
+}
+
+class _OrbitRingPainter extends CustomPainter {
+  final Color color;
+  final double phase;
+
+  const _OrbitRingPainter({required this.color, required this.phase});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = size.shortestSide * 0.39;
+    final paint = Paint()
+      ..color = color.withOpacity(0.38)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.1;
+    for (var i = 0; i < 3; i++) {
+      final tilt = 0.18 + i * 0.19 + math.sin(phase + i) * 0.04;
+      canvas.save();
+      canvas.translate(center.dx, center.dy);
+      canvas.rotate(phase * (i.isEven ? 0.14 : -0.10));
+      canvas.drawOval(
+        Rect.fromCenter(
+            center: Offset.zero, width: radius * 2.2, height: radius * tilt),
+        paint,
+      );
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _OrbitRingPainter oldDelegate) =>
+      oldDelegate.phase != phase || oldDelegate.color != color;
 }
 
 class OnboardingScreen extends StatefulWidget {
@@ -487,6 +569,63 @@ class _LockScreenState extends State<LockScreen> {
   }
 }
 
+class JarvisGlass extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final BorderRadius borderRadius;
+
+  const JarvisGlass({
+    Key? key,
+    required this.child,
+    this.padding = const EdgeInsets.all(14),
+    this.borderRadius = const BorderRadius.all(Radius.circular(20)),
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: const Color(0xFF091321).withOpacity(0.78),
+        borderRadius: borderRadius,
+        border: Border.all(color: const Color(0xFF32F5FF).withOpacity(0.20)),
+        boxShadow: [
+          BoxShadow(
+              color: const Color(0xFF00F5FF).withOpacity(0.06),
+              blurRadius: 24,
+              spreadRadius: 1),
+        ],
+      ),
+      child: child,
+    );
+  }
+}
+
+class _HudBackdropPainter extends CustomPainter {
+  const _HudBackdropPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final grid = Paint()
+      ..color = const Color(0xFF32F5FF).withOpacity(0.045)
+      ..strokeWidth = 0.5;
+    for (var x = 0.0; x < size.width; x += 28) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), grid);
+    }
+    for (var y = 0.0; y < size.height; y += 28) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
+    }
+    final vignette = Paint()
+      ..shader = RadialGradient(
+        colors: [Colors.transparent, const Color(0xFF02050C).withOpacity(0.78)],
+      ).createShader(Offset.zero & size);
+    canvas.drawRect(Offset.zero & size, vignette);
+  }
+
+  @override
+  bool shouldRepaint(covariant _HudBackdropPainter oldDelegate) => false;
+}
+
 class MainDashboard extends StatefulWidget {
   const MainDashboard({Key? key}) : super(key: key);
 
@@ -496,34 +635,61 @@ class MainDashboard extends StatefulWidget {
 
 class _MainDashboardState extends State<MainDashboard> {
   int _currentIndex = 0;
-  final List<Widget> _pages = [
-    const AssistantPage(),
-    const TerminalPage(),
-    const MeshRelayPage(),
-    const GpsViewerPage(),
-    const SettingsPage(),
+  final List<Widget> _pages = const [
+    AssistantPage(),
+    TerminalPage(),
+    MeshRelayPage(),
+    GpsViewerPage(),
+    HackingDashboardPage(),
+    SettingsPage(),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _pages[_currentIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
-        backgroundColor: const Color(0xFF0A0F1D),
-        selectedItemColor: const Color(0xFF00F5FF),
-        unselectedItemColor: Colors.grey,
-        type: BottomNavigationBarType.fixed,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.bolt), label: 'Assistant'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.terminal), label: 'Terminal'),
-          BottomNavigationBarItem(icon: Icon(Icons.hub), label: 'Mesh'),
-          BottomNavigationBarItem(icon: Icon(Icons.location_on), label: 'GPS'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.settings), label: 'Settings'),
-        ],
+      backgroundColor: const Color(0xFF02050C),
+      extendBody: true,
+      body: IndexedStack(index: _currentIndex, children: _pages),
+      bottomNavigationBar: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: NavigationBar(
+            height: 70,
+            selectedIndex: _currentIndex,
+            onDestinationSelected: (index) =>
+                setState(() => _currentIndex = index),
+            backgroundColor: const Color(0xFF07101D).withOpacity(0.96),
+            indicatorColor: const Color(0xFF00F5FF).withOpacity(0.18),
+            labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+            destinations: const [
+              NavigationDestination(
+                  icon: Icon(Icons.bolt_outlined),
+                  selectedIcon: Icon(Icons.bolt),
+                  label: 'Core'),
+              NavigationDestination(
+                  icon: Icon(Icons.terminal_outlined),
+                  selectedIcon: Icon(Icons.terminal),
+                  label: 'Terminal'),
+              NavigationDestination(
+                  icon: Icon(Icons.hub_outlined),
+                  selectedIcon: Icon(Icons.hub),
+                  label: 'Mesh'),
+              NavigationDestination(
+                  icon: Icon(Icons.location_on_outlined),
+                  selectedIcon: Icon(Icons.location_on),
+                  label: 'GPS'),
+              NavigationDestination(
+                  icon: Icon(Icons.security_outlined),
+                  selectedIcon: Icon(Icons.security),
+                  label: 'Sim'),
+              NavigationDestination(
+                  icon: Icon(Icons.settings_outlined),
+                  selectedIcon: Icon(Icons.settings),
+                  label: 'Settings'),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -541,12 +707,16 @@ class _AssistantPageState extends State<AssistantPage>
   final List<Map<String, String>> _messages = [
     {
       'role': 'assistant',
-      'text':
-          'J.A.R.V.I.S. 2080 Holographic Core active. Awaiting your command.'
+      'text': 'Core online. Real device actions are ready; ask or speak a task.'
     }
   ];
   final _inputController = TextEditingController();
+  final stt.SpeechToText _speech = stt.SpeechToText();
   late AnimationController _pulseController;
+  JarvisVisualState _visualState = JarvisVisualState.idle;
+  bool _speechReady = false;
+  bool _isListening = false;
+  String _lastMissingPackage = '';
 
   @override
   void initState() {
@@ -569,7 +739,78 @@ class _AssistantPageState extends State<AssistantPage>
   @override
   void dispose() {
     _pulseController.dispose();
+    _speech.stop();
+    _inputController.dispose();
     super.dispose();
+  }
+
+  void _addAssistant(String text) {
+    if (!mounted) return;
+    setState(() {
+      _messages.add({'role': 'assistant', 'text': text});
+      _visualState = JarvisVisualState.talking;
+    });
+    Future<void>.delayed(const Duration(milliseconds: 900), () {
+      if (mounted) setState(() => _visualState = JarvisVisualState.idle);
+    });
+  }
+
+  Future<void> _toggleListening() async {
+    if (_isListening) {
+      await _speech.stop();
+      if (mounted)
+        setState(() {
+          _isListening = false;
+          _visualState = JarvisVisualState.idle;
+        });
+      return;
+    }
+    final permission = await Permission.microphone.request();
+    if (!permission.isGranted) {
+      _addAssistant('Microphone permission is required for voice commands.');
+      return;
+    }
+    _speechReady = await _speech.initialize(
+      onStatus: (status) {
+        if (status == 'done' && mounted) {
+          setState(() {
+            _isListening = false;
+            _visualState = JarvisVisualState.idle;
+          });
+        }
+      },
+      onError: (error) {
+        if (mounted) {
+          setState(() {
+            _isListening = false;
+            _visualState = JarvisVisualState.idle;
+          });
+          _addAssistant('Speech recognition error: ${error.errorMsg}');
+        }
+      },
+    );
+    if (!_speechReady) {
+      _addAssistant('Speech recognition is unavailable on this device.');
+      return;
+    }
+    setState(() {
+      _isListening = true;
+      _visualState = JarvisVisualState.listening;
+    });
+    await _speech.listen(
+      onResult: (result) {
+        if (!mounted) return;
+        setState(() => _inputController.text = result.recognizedWords);
+        if (result.finalResult && result.recognizedWords.trim().isNotEmpty) {
+          _speech.stop();
+          setState(() {
+            _isListening = false;
+            _visualState = JarvisVisualState.thinking;
+          });
+          _handleSubmit(result.recognizedWords);
+        }
+      },
+    );
   }
 
   Future<void> _handleSubmit(String text) async {
@@ -578,62 +819,184 @@ class _AssistantPageState extends State<AssistantPage>
     _inputController.clear();
     setState(() {
       _messages.add({'role': 'user', 'text': prompt});
+      _visualState = JarvisVisualState.thinking;
     });
 
     final lower = prompt.toLowerCase();
-    if (lower.startsWith('open ') ||
-        lower.startsWith('launch ') ||
-        lower == 'open youtube') {
+    if (lower == 'show commands' ||
+        lower == 'help' ||
+        lower == 'command center') {
+      _addAssistant(
+          'Command Center online: ${jarvisCommandCatalog.length}+ routed capabilities. Scroll the catalog from the command menu.');
+      return;
+    }
+    if (lower.contains('prank') ||
+        lower.contains('hacking dashboard') ||
+        lower == 'simulation') {
+      _addAssistant(
+          'Open the SIM tab for a clearly labelled prank-only visual simulation. It performs no hacking, scanning, cracking, or remote access.');
+      return;
+    }
+    if (lower.startsWith('open ') || lower.startsWith('launch ')) {
       final appName =
           lower.replaceFirst('open ', '').replaceFirst('launch ', '').trim();
       await _executeAppCommand(appName);
       return;
     }
-
+    if (lower.startsWith('y- open ')) {
+      await _launchPackageDirect(lower.substring(8).trim());
+      return;
+    }
+    if (lower == 'y- install' || lower.startsWith('y- install ')) {
+      await _openInstallPage(lower.replaceFirst('y- install', '').trim());
+      return;
+    }
+    if (lower.contains('device status') ||
+        lower == 'status' ||
+        lower.contains('battery')) {
+      await _readDeviceStatus();
+      return;
+    }
+    if (lower.contains('wifi settings') || lower == 'open wifi') {
+      final opened = await SystemService.openWifiSettings();
+      _addAssistant(opened
+          ? 'Wi-Fi settings opened.'
+          : 'Android could not open Wi-Fi settings.');
+      return;
+    }
+    if (lower.contains('hotspot')) {
+      final opened = await SystemService.openHotspotSettings();
+      _addAssistant(opened
+          ? 'Hotspot settings opened.'
+          : 'Android could not open hotspot settings.');
+      return;
+    }
+    if (lower.contains('bluetooth settings') || lower == 'open bluetooth') {
+      final opened = await SystemService.openBluetoothSettings();
+      _addAssistant(opened
+          ? 'Bluetooth settings opened.'
+          : 'Android could not open Bluetooth settings.');
+      return;
+    }
+    if (lower.startsWith('call ')) {
+      final result = await SystemService.dial(prompt.substring(5).trim());
+      _addAssistant('Dialer result: ${result['status'] ?? 'unknown'}.');
+      return;
+    }
+    if (lower.contains('location') || lower.contains('where am i')) {
+      final result = await SystemService.location();
+      _addAssistant('Location result: ${_formatNativeResult(result)}');
+      return;
+    }
+    if (lower.startsWith('create file ') ||
+        lower.startsWith('delete file ') ||
+        lower == 'pwd' ||
+        lower == 'ls') {
+      await _runSafeFileAction(prompt);
+      return;
+    }
     await _queryAiApi(prompt);
   }
 
-  Future<void> _executeAppCommand(String appName) async {
-    const system = MethodChannel('com.ultimate.jarvis/system');
-    try {
-      final resolution = await system.invokeMethod<Map<dynamic, dynamic>>(
-          'resolvePackage', {'appName': appName});
-      final status = resolution?['status']?.toString() ?? 'unknown';
-      final packageName = resolution?['packageName']?.toString() ?? '';
-      if (status == 'installed' && packageName.isNotEmpty) {
-        final launch = await system.invokeMethod<Map<dynamic, dynamic>>(
-            'launchPackage', {'packageName': packageName});
-        final launchStatus = launch?['status']?.toString() ?? 'failed';
-        setState(() {
-          _messages.add({
-            'role': 'assistant',
-            'text': launchStatus == 'launched'
-                ? 'Executing: Successfully launched $appName ($packageName).'
-                : 'Found $packageName, but Android failed to launch it.',
-          });
-        });
-      } else if (status == 'not_installed' && packageName.isNotEmpty) {
-        setState(() {
-          _messages.add({
-            'role': 'assistant',
-            'text':
-                '$appName is not installed. Package: $packageName. Write "y- install" to initiate setup.',
-          });
-        });
-      } else {
-        setState(() {
-          _messages.add({
-            'role': 'assistant',
-            'text': 'Could not resolve package for "$appName".'
-          });
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _messages
-            .add({'role': 'assistant', 'text': 'Command execution error: $e'});
-      });
+  String _formatNativeResult(Map<String, dynamic> result) {
+    if (result.isEmpty) return 'No data returned.';
+    return result.entries
+        .map((entry) => '${entry.key}: ${entry.value}')
+        .join(' · ');
+  }
+
+  Future<void> _readDeviceStatus() async {
+    final battery = await SystemService.batteryStatus();
+    final wifi = await SystemService.wifiState();
+    final bluetooth = await SystemService.bluetoothState();
+    _addAssistant(
+        'Battery ${battery['percent'] ?? 'unknown'}% (${battery['chargingState'] ?? 'unknown'}). Wi-Fi ${wifi['enabled'] == true ? 'on' : 'off'}. Bluetooth ${bluetooth['enabled'] == true ? 'on' : 'off'}.');
+  }
+
+  Future<void> _runSafeFileAction(String prompt) async {
+    final lower = prompt.toLowerCase();
+    final dir = await getApplicationDocumentsDirectory();
+    if (lower == 'pwd') {
+      _addAssistant('Working directory: ${dir.path}');
+      return;
     }
+    if (lower == 'ls') {
+      final entries =
+          dir.listSync().map((entry) => entry.path.split('/').last).toList();
+      _addAssistant(entries.isEmpty
+          ? 'Directory is empty.'
+          : 'Files: ${entries.join(', ')}');
+      return;
+    }
+    final create =
+        RegExp(r'^create file (.+)$', caseSensitive: false).firstMatch(prompt);
+    final delete =
+        RegExp(r'^delete file (.+)$', caseSensitive: false).firstMatch(prompt);
+    final match = create ?? delete;
+    if (match == null) {
+      _addAssistant(
+          'Safe file commands: ls, pwd, create file <name>, delete file <name>. Recursive deletion is blocked.');
+      return;
+    }
+    final name = match.group(1)!.trim().split('/').last;
+    if (name.isEmpty || name == '.' || name == '..' || name.contains('..')) {
+      _addAssistant(
+          'Unsafe filename blocked. Use a simple file name inside the app directory.');
+      return;
+    }
+    final file = File('${dir.path}/$name');
+    try {
+      if (create != null) {
+        await file.create();
+        _addAssistant('Created file: $name');
+      } else {
+        if (await file.exists()) {
+          await file.delete();
+          _addAssistant('Deleted file: $name');
+        } else {
+          _addAssistant('File not found: $name');
+        }
+      }
+    } catch (error) {
+      _addAssistant('File operation failed: $error');
+    }
+  }
+
+  Future<void> _executeAppCommand(String appName) async {
+    final resolution = await SystemService.resolvePackage(appName);
+    final status = resolution['status']?.toString() ?? 'unknown';
+    final packageName = resolution['packageName']?.toString() ?? '';
+    if (status == 'installed' && packageName.isNotEmpty) {
+      final launch = await SystemService.launchPackage(packageName);
+      _addAssistant(launch['status'] == 'launched'
+          ? 'Launched $appName ($packageName).'
+          : 'Android could not launch $packageName.');
+    } else if (status == 'not_installed' && packageName.isNotEmpty) {
+      _lastMissingPackage = packageName;
+      _addAssistant(
+          '$appName is not installed. Package: $packageName. Type “y- install” to open the official store page.');
+    } else {
+      _addAssistant('No installed package mapping found for "$appName".');
+    }
+  }
+
+  Future<void> _launchPackageDirect(String packageName) async {
+    final result = await SystemService.launchPackage(packageName);
+    _addAssistant('Package launch result: ${_formatNativeResult(result)}');
+  }
+
+  Future<void> _openInstallPage(String value) async {
+    final packageName = value.isNotEmpty ? value : _lastMissingPackage;
+    if (packageName.isEmpty) {
+      _addAssistant('No pending package. First ask me to open an app.');
+      return;
+    }
+    final uri =
+        Uri.parse('https://play.google.com/store/apps/details?id=$packageName');
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    _addAssistant(opened
+        ? 'Official Play Store page opened for $packageName.'
+        : 'Could not open the Play Store page.');
   }
 
   Future<void> _queryAiApi(String prompt) async {
@@ -642,17 +1005,11 @@ class _AssistantPageState extends State<AssistantPage>
         'https://api.groq.com/openai/v1/chat/completions';
     final key = prefs.getString('api_key') ?? '';
     final model = prefs.getString('api_model') ?? 'llama-3.3-70b-versatile';
-
     if (key.isEmpty) {
-      setState(() {
-        _messages.add({
-          'role': 'assistant',
-          'text': 'API key not configured. Please add your API key in Settings.'
-        });
-      });
+      _addAssistant(
+          'API key not configured. Add an endpoint, key, and model in Settings.');
       return;
     }
-
     try {
       final response = await http.post(
         Uri.parse(url),
@@ -666,155 +1023,272 @@ class _AssistantPageState extends State<AssistantPage>
             {
               'role': 'system',
               'content':
-                  'You are JARVIS 2080, an advanced cyberpunk AI assistant created by Prince Singh. Execute requested commands immediately and respond concisely.'
+                  'You are JARVIS 2080, a concise mobile AI assistant. Answer naturally. Never claim a real device action happened unless the native command result confirms it. For unsupported device operations, explain the limitation and give a safe next step.'
             },
             {'role': 'user', 'content': prompt}
           ],
         }),
       );
-
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final reply =
-            data['choices'][0]['message']['content'] ?? 'No response content.';
-        setState(() {
-          _messages.add({'role': 'assistant', 'text': reply});
-        });
+        _addAssistant(
+            '${data['choices']?[0]?['message']?['content'] ?? 'No response content.'}');
       } else {
-        setState(() {
-          _messages.add({
-            'role': 'assistant',
-            'text': 'API Error (${response.statusCode}): ${response.body}'
-          });
-        });
+        _addAssistant('API error ${response.statusCode}: ${response.body}');
       }
-    } catch (e) {
-      setState(() {
-        _messages.add({'role': 'assistant', 'text': 'Connection error: $e'});
-      });
+    } catch (error) {
+      _addAssistant('Connection error: $error');
     }
+  }
+
+  void _openCommandCatalog() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF06101C),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (context) => SafeArea(
+        child: SizedBox(
+          height: MediaQuery.of(context).size.height * 0.78,
+          child: ListView(
+            padding: const EdgeInsets.all(20),
+            children: [
+              const Text('COMMAND CENTER',
+                  style: TextStyle(
+                      color: Color(0xFF32F5FF),
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 2)),
+              const SizedBox(height: 6),
+              Text(
+                  '${jarvisCommandCatalog.length}+ routed capabilities · real actions stay permission-gated',
+                  style: TextStyle(
+                      color: Colors.white.withOpacity(0.62), fontSize: 12)),
+              const SizedBox(height: 14),
+              ...jarvisCommandCatalog.map((spec) => ListTile(
+                    dense: true,
+                    leading: Icon(
+                        spec.real
+                            ? Icons.verified_outlined
+                            : Icons.auto_awesome_outlined,
+                        color: spec.real
+                            ? const Color(0xFF32F5FF)
+                            : const Color(0xFFA970FF),
+                        size: 18),
+                    title: Text(spec.phrase,
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 12)),
+                    subtitle: Text(spec.area,
+                        style: TextStyle(
+                            color: Colors.white.withOpacity(0.48),
+                            fontSize: 10)),
+                  )),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('J.A.R.V.I.S. HELD',
-            style: TextStyle(color: Color(0xFF00F5FF), letterSpacing: 1.5)),
-        backgroundColor: const Color(0xFF0A0F1D),
-      ),
-      body: Column(
+      backgroundColor: const Color(0xFF02050C),
+      body: Stack(
         children: [
-          // Holographic Spherical Visualizer
-          AnimatedBuilder(
-            animation: _pulseController,
-            builder: (context, child) {
-              return Container(
-                height: 180,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  gradient: RadialGradient(
-                    colors: [
-                      const Color(0xFF00F5FF).withOpacity(0.3 +
-                          0.15 *
-                              math.sin(_pulseController.value * math.pi * 2)),
-                      const Color(0xFF030712),
-                    ],
-                    radius: 0.9,
-                  ),
-                ),
-                child: Center(
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Container(
-                        width: 110 +
-                            (25 * math.sin(_pulseController.value * math.pi)),
-                        height: 110 +
-                            (25 * math.sin(_pulseController.value * math.pi)),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                              color: const Color(0xFF00F5FF).withOpacity(0.7),
-                              width: 2),
-                        ),
-                      ),
-                      Container(
-                        width: 75,
-                        height: 75,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: const LinearGradient(
-                              colors: [Color(0xFF00F5FF), Color(0xFFFF007F)]),
-                          boxShadow: [
-                            BoxShadow(
-                                color: const Color(0xFF00F5FF).withOpacity(0.9),
-                                blurRadius: 25)
-                          ],
-                        ),
-                        child: const Center(
-                          child: Icon(Icons.blur_circular,
-                              color: Colors.black, size: 36),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final msg = _messages[index];
-                final isUser = msg['role'] == 'user';
-                return Align(
-                  alignment:
-                      isUser ? Alignment.centerRight : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(vertical: 4),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isUser
-                          ? const Color(0xFF00F5FF).withOpacity(0.15)
-                          : const Color(0xFF1E293B),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                          color: isUser
-                              ? const Color(0xFF00F5FF)
-                              : const Color(0xFFFF007F),
-                          width: 0.8),
-                    ),
-                    child: Text(
-                      msg['text'] ?? '',
-                      style: const TextStyle(color: Colors.white, fontSize: 14),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Row(
+          const Positioned.fill(
+              child: CustomPaint(painter: _HudBackdropPainter())),
+          SafeArea(
+            bottom: false,
+            child: Column(
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: _inputController,
-                    onSubmitted: _handleSubmit,
-                    decoration: const InputDecoration(
-                      hintText: 'Give the task or chat with JARVIS...',
-                      hintStyle: TextStyle(color: Colors.grey),
-                      border: OutlineInputBorder(),
-                    ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 6),
+                  child: Row(
+                    children: [
+                      Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('J.A.R.V.I.S. // 2080',
+                                style: TextStyle(
+                                    color: Colors.white.withOpacity(0.96),
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 1.6,
+                                    fontSize: 15)),
+                            Text('PRO EXPERT SYSTEMS',
+                                style: TextStyle(
+                                    color: const Color(0xFF32F5FF)
+                                        .withOpacity(0.72),
+                                    fontSize: 9,
+                                    letterSpacing: 2.6)),
+                          ]),
+                      const Spacer(),
+                      Container(
+                          width: 7,
+                          height: 7,
+                          decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Color(0xFF57F287))),
+                      const SizedBox(width: 6),
+                      Text('ONLINE',
+                          style: TextStyle(
+                              color: Colors.white.withOpacity(0.60),
+                              fontSize: 10,
+                              letterSpacing: 1.4)),
+                      IconButton(
+                          onPressed: _openCommandCatalog,
+                          icon: const Icon(Icons.grid_view_rounded,
+                              color: Color(0xFF32F5FF))),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 8),
-                IconButton(
-                  onPressed: () => _handleSubmit(_inputController.text),
-                  icon: const Icon(Icons.send, color: Color(0xFF00F5FF)),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final coreSize =
+                          math.min(constraints.maxWidth * 0.84, 300.0);
+                      return CustomScrollView(
+                        slivers: [
+                          SliverToBoxAdapter(
+                            child: Column(
+                              children: [
+                                const SizedBox(height: 2),
+                                Text(
+                                    _visualState == JarvisVisualState.listening
+                                        ? 'SPEAK A COMMAND'
+                                        : 'READY FOR INPUT',
+                                    style: TextStyle(
+                                        color: Colors.white.withOpacity(0.52),
+                                        letterSpacing: 2.3,
+                                        fontSize: 10)),
+                                SizedBox(height: 4, width: double.infinity),
+                                HolographicCore(
+                                    size: coreSize,
+                                    state: _visualState,
+                                    intensity:
+                                        0.56 + _pulseController.value * 0.22),
+                                Text(
+                                    _isListening
+                                        ? 'Listening — tap the mic to stop'
+                                        : 'Tap the mic, type, or say “Jarvis”',
+                                    style: TextStyle(
+                                        color: Colors.white.withOpacity(0.52),
+                                        fontSize: 11)),
+                                const SizedBox(height: 12),
+                                SizedBox(
+                                  height: 34,
+                                  child: ListView(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 18),
+                                    scrollDirection: Axis.horizontal,
+                                    children: [
+                                      _quickChip('Open YouTube',
+                                          () => _handleSubmit('Open YouTube')),
+                                      _quickChip('Device status',
+                                          () => _handleSubmit('Device status')),
+                                      _quickChip(
+                                          'Scan mesh',
+                                          () => _handleSubmit(
+                                              'Scan nearby devices')),
+                                      _quickChip(
+                                          'Commands', _openCommandCatalog),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                              ],
+                            ),
+                          ),
+                          SliverPadding(
+                            padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
+                            sliver: SliverList.builder(
+                              itemCount: _messages.length,
+                              itemBuilder: (context, index) {
+                                final message = _messages[index];
+                                final user = message['role'] == 'user';
+                                return Align(
+                                  alignment: user
+                                      ? Alignment.centerRight
+                                      : Alignment.centerLeft,
+                                  child: Container(
+                                    constraints: BoxConstraints(
+                                        maxWidth:
+                                            MediaQuery.of(context).size.width *
+                                                0.88),
+                                    margin:
+                                        const EdgeInsets.symmetric(vertical: 4),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 14, vertical: 10),
+                                    decoration: BoxDecoration(
+                                      color: user
+                                          ? const Color(0xFF00F5FF)
+                                              .withOpacity(0.13)
+                                          : const Color(0xFF0A1726)
+                                              .withOpacity(0.84),
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                          color: user
+                                              ? const Color(0xFF32F5FF)
+                                                  .withOpacity(0.64)
+                                              : const Color(0xFFA970FF)
+                                                  .withOpacity(0.38)),
+                                    ),
+                                    child: Text(message['text'] ?? '',
+                                        style: TextStyle(
+                                            color:
+                                                Colors.white.withOpacity(0.90),
+                                            fontSize: 12,
+                                            height: 1.35)),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 4, 14, 80),
+                  child: JarvisGlass(
+                    padding: const EdgeInsets.fromLTRB(12, 7, 8, 7),
+                    borderRadius: BorderRadius.circular(24),
+                    child: Row(
+                      children: [
+                        Expanded(
+                            child: TextField(
+                                controller: _inputController,
+                                onSubmitted: _handleSubmit,
+                                minLines: 1,
+                                maxLines: 3,
+                                style: const TextStyle(
+                                    color: Colors.white, fontSize: 13),
+                                decoration: InputDecoration(
+                                    hintText: 'Give the task or chat...',
+                                    hintStyle: TextStyle(
+                                        color: Colors.white.withOpacity(0.42),
+                                        fontSize: 12),
+                                    border: InputBorder.none,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 8)))),
+                        IconButton(
+                            onPressed: _toggleListening,
+                            icon: Icon(
+                                _isListening
+                                    ? Icons.stop_circle
+                                    : Icons.mic_none_rounded,
+                                color: _isListening
+                                    ? const Color(0xFFFFB86B)
+                                    : const Color(0xFF32F5FF))),
+                        IconButton(
+                            onPressed: () =>
+                                _handleSubmit(_inputController.text),
+                            icon: const Icon(Icons.arrow_upward_rounded,
+                                color: Color(0xFF32F5FF))),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -823,6 +1297,497 @@ class _AssistantPageState extends State<AssistantPage>
       ),
     );
   }
+
+  Widget _quickChip(String label, VoidCallback onTap) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ActionChip(
+        onPressed: onTap,
+        backgroundColor: const Color(0xFF0C1B2B).withOpacity(0.88),
+        side: BorderSide(color: const Color(0xFF32F5FF).withOpacity(0.25)),
+        label: Text(label,
+            style: const TextStyle(color: Color(0xFFB8F7FF), fontSize: 10)),
+      ),
+    );
+  }
+}
+
+class JarvisCommandSpec {
+  final String phrase;
+  final String area;
+  final bool real;
+
+  const JarvisCommandSpec(this.phrase, this.area, {this.real = false});
+}
+
+const List<JarvisCommandSpec> jarvisCommandCatalog = <JarvisCommandSpec>[
+  JarvisCommandSpec('Open YouTube / Chrome / Gmail / Maps', 'Native app launch',
+      real: true),
+  JarvisCommandSpec('Open WhatsApp / Instagram / Facebook', 'Native app launch',
+      real: true),
+  JarvisCommandSpec(
+      'Open Spotify / Telegram / Discord / Netflix', 'Native app launch',
+      real: true),
+  JarvisCommandSpec('Use y- open <package>', 'Native package launch',
+      real: true),
+  JarvisCommandSpec('Use y- install after a missing-app result',
+      'Official Play Store handoff',
+      real: true),
+  JarvisCommandSpec('Call a phone number', 'Android dialer handoff',
+      real: true),
+  JarvisCommandSpec('Open Wi-Fi settings', 'Android settings', real: true),
+  JarvisCommandSpec('Open hotspot settings', 'Android settings', real: true),
+  JarvisCommandSpec('Open Bluetooth settings', 'Android settings', real: true),
+  JarvisCommandSpec('Show Wi-Fi state and SSID', 'Native telemetry',
+      real: true),
+  JarvisCommandSpec('Show Bluetooth state', 'Native telemetry', real: true),
+  JarvisCommandSpec('Show battery and charging status', 'Native telemetry',
+      real: true),
+  JarvisCommandSpec('Read current location', 'Native GPS permission flow',
+      real: true),
+  JarvisCommandSpec('Open accessibility settings', 'Android settings',
+      real: true),
+  JarvisCommandSpec('Open JARVIS app settings', 'Android settings', real: true),
+  JarvisCommandSpec('List app files with ls', 'Real app document directory',
+      real: true),
+  JarvisCommandSpec(
+      'Show working directory with pwd', 'Real app document directory',
+      real: true),
+  JarvisCommandSpec('Create file <name>', 'Real app document directory',
+      real: true),
+  JarvisCommandSpec('Delete file <name>', 'Real app document directory',
+      real: true),
+  JarvisCommandSpec('Show safe terminal help', 'Real terminal guardrails',
+      real: true),
+  JarvisCommandSpec('Scan nearby mesh devices', 'Native mesh permission flow',
+      real: true),
+  JarvisCommandSpec('Show paired mesh peers', 'Mesh service', real: true),
+  JarvisCommandSpec('Open GPS viewer', 'JARVIS telemetry surface', real: true),
+  JarvisCommandSpec('Open terminal', 'JARVIS terminal surface', real: true),
+  JarvisCommandSpec('Open settings', 'JARVIS settings surface', real: true),
+  JarvisCommandSpec(
+      'Fetch AI models from configured endpoint', 'Settings API flow',
+      real: true),
+  JarvisCommandSpec('Save endpoint, API key, and model', 'Settings persistence',
+      real: true),
+  JarvisCommandSpec('Ask for a concise explanation', 'Configured AI endpoint'),
+  JarvisCommandSpec('Summarize text or pasted notes', 'Configured AI endpoint'),
+  JarvisCommandSpec('Rewrite an email or message', 'Configured AI endpoint'),
+  JarvisCommandSpec('Translate a sentence', 'Configured AI endpoint'),
+  JarvisCommandSpec('Extract tasks from notes', 'Configured AI endpoint'),
+  JarvisCommandSpec('Generate a checklist', 'Configured AI endpoint'),
+  JarvisCommandSpec('Draft a professional reply', 'Configured AI endpoint'),
+  JarvisCommandSpec('Explain an error message', 'Configured AI endpoint'),
+  JarvisCommandSpec('Compare two options', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a study plan', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a workout outline', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a meal outline', 'Configured AI endpoint'),
+  JarvisCommandSpec('Brainstorm project names', 'Configured AI endpoint'),
+  JarvisCommandSpec('Generate Flutter ideas', 'Configured AI endpoint'),
+  JarvisCommandSpec('Generate Android test cases', 'Configured AI endpoint'),
+  JarvisCommandSpec('Explain Dart code', 'Configured AI endpoint'),
+  JarvisCommandSpec('Explain Kotlin code', 'Configured AI endpoint'),
+  JarvisCommandSpec('Review a command safely', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a JSON schema', 'Configured AI endpoint'),
+  JarvisCommandSpec('Convert notes to JSON', 'Configured AI endpoint'),
+  JarvisCommandSpec('Convert JSON to a table', 'Configured AI endpoint'),
+  JarvisCommandSpec('Extract names and dates', 'Configured AI endpoint'),
+  JarvisCommandSpec('Generate a meeting agenda', 'Configured AI endpoint'),
+  JarvisCommandSpec('Generate meeting minutes', 'Configured AI endpoint'),
+  JarvisCommandSpec('Make a release checklist', 'Configured AI endpoint'),
+  JarvisCommandSpec('Write a README section', 'Configured AI endpoint'),
+  JarvisCommandSpec('Write a commit message', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a bug report draft', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a feature specification', 'Configured AI endpoint'),
+  JarvisCommandSpec('Suggest UI copy', 'Configured AI endpoint'),
+  JarvisCommandSpec('Suggest accessibility labels', 'Configured AI endpoint'),
+  JarvisCommandSpec('Explain a privacy setting', 'Configured AI endpoint'),
+  JarvisCommandSpec('Explain a networking concept', 'Configured AI endpoint'),
+  JarvisCommandSpec(
+      'Explain a security concept safely', 'Configured AI endpoint'),
+  JarvisCommandSpec('Generate a Mermaid diagram', 'Configured AI endpoint'),
+  JarvisCommandSpec('Generate a SQL query draft', 'Configured AI endpoint'),
+  JarvisCommandSpec('Generate a regex draft', 'Configured AI endpoint'),
+  JarvisCommandSpec('Format a log excerpt', 'Configured AI endpoint'),
+  JarvisCommandSpec('Find likely causes of an error', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a troubleshooting tree', 'Configured AI endpoint'),
+  JarvisCommandSpec('Suggest battery-saving steps', 'Configured AI endpoint'),
+  JarvisCommandSpec('Suggest offline-first behavior', 'Configured AI endpoint'),
+  JarvisCommandSpec('Plan a local mesh test', 'Configured AI endpoint'),
+  JarvisCommandSpec('Plan a permission checklist', 'Configured AI endpoint'),
+  JarvisCommandSpec('Explain Google Sign-In setup', 'Configured AI endpoint'),
+  JarvisCommandSpec('Explain SHA-1 and SHA-256', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a Firebase checklist', 'Configured AI endpoint'),
+  JarvisCommandSpec('Explain release signing', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a QA matrix', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a smoke-test plan', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a regression-test plan', 'Configured AI endpoint'),
+  JarvisCommandSpec('Generate a Dart test outline', 'Configured AI endpoint'),
+  JarvisCommandSpec('Generate Kotlin test ideas', 'Configured AI endpoint'),
+  JarvisCommandSpec('Draft a product changelog', 'Configured AI endpoint'),
+  JarvisCommandSpec('Draft a privacy notice', 'Configured AI endpoint'),
+  JarvisCommandSpec('Draft a permission explanation', 'Configured AI endpoint'),
+  JarvisCommandSpec('Explain safe file operations', 'Configured AI endpoint'),
+  JarvisCommandSpec(
+      'Explain why recursive delete is blocked', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a safe terminal alias', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a command cheat sheet', 'Configured AI endpoint'),
+  JarvisCommandSpec('Generate a study flashcard set', 'Configured AI endpoint'),
+  JarvisCommandSpec('Generate interview questions', 'Configured AI endpoint'),
+  JarvisCommandSpec('Practice a language dialogue', 'Configured AI endpoint'),
+  JarvisCommandSpec('Explain a difficult paragraph', 'Configured AI endpoint'),
+  JarvisCommandSpec('Turn a paragraph into bullets', 'Configured AI endpoint'),
+  JarvisCommandSpec('Turn bullets into a paragraph', 'Configured AI endpoint'),
+  JarvisCommandSpec('Generate a polite reminder', 'Configured AI endpoint'),
+  JarvisCommandSpec('Generate a travel checklist', 'Configured AI endpoint'),
+  JarvisCommandSpec('Generate a packing list', 'Configured AI endpoint'),
+  JarvisCommandSpec('Generate a shopping list', 'Configured AI endpoint'),
+  JarvisCommandSpec(
+      'Generate a personal goals review', 'Configured AI endpoint'),
+  JarvisCommandSpec(
+      'Create a weekly review template', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a daily focus plan', 'Configured AI endpoint'),
+  JarvisCommandSpec('Suggest focus timers', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a learning roadmap', 'Configured AI endpoint'),
+  JarvisCommandSpec(
+      'Create a project milestone plan', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a risk register', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create an assumption list', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a decision log', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a status update', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a support response', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a test-data description without real data',
+      'Configured AI endpoint'),
+  JarvisCommandSpec('Explain a code diff', 'Configured AI endpoint'),
+  JarvisCommandSpec('Suggest refactoring steps', 'Configured AI endpoint'),
+  JarvisCommandSpec(
+      'Generate documentation headings', 'Configured AI endpoint'),
+  JarvisCommandSpec('Generate API request examples', 'Configured AI endpoint'),
+  JarvisCommandSpec('Explain an HTTP status code', 'Configured AI endpoint'),
+  JarvisCommandSpec('Explain a JSON error', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a monitoring checklist', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create an incident timeline', 'Configured AI endpoint'),
+  JarvisCommandSpec('Create a rollback checklist', 'Configured AI endpoint'),
+  JarvisCommandSpec('Explain a build failure', 'Configured AI endpoint'),
+  JarvisCommandSpec('Explain a Gradle task', 'Configured AI endpoint'),
+  JarvisCommandSpec('Explain a Flutter asset', 'Configured AI endpoint'),
+  JarvisCommandSpec(
+      'Create a release verification checklist', 'Configured AI endpoint'),
+  JarvisCommandSpec('Explain a package name', 'Configured AI endpoint'),
+  JarvisCommandSpec('Explain an Android permission', 'Configured AI endpoint'),
+  JarvisCommandSpec(
+      'Create a user onboarding script', 'Configured AI endpoint'),
+  JarvisCommandSpec('Draft a help response', 'Configured AI endpoint'),
+  JarvisCommandSpec('Show what JARVIS can do', 'Command catalog', real: true),
+];
+
+class HackingDashboardPage extends StatefulWidget {
+  const HackingDashboardPage({Key? key}) : super(key: key);
+
+  @override
+  State<HackingDashboardPage> createState() => _HackingDashboardPageState();
+}
+
+class _HackingDashboardPageState extends State<HackingDashboardPage> {
+  Timer? _timer;
+  bool _running = false;
+  int _progress = 0;
+  String _selectedModule = 'PRANK CONSOLE';
+  final List<String> _logs = <String>[
+    '[SIM] Local visual console ready.',
+    '[SIM] No network, device, password, or target access is performed.',
+  ];
+
+  final List<Map<String, String>> _modules = const [
+    {
+      'icon': '₿',
+      'title': 'BITCOIN MINER',
+      'subtitle': 'fictional hash stream'
+    },
+    {
+      'icon': '⌂',
+      'title': 'HQ SURVEILLANCE',
+      'subtitle': 'fictional camera feed'
+    },
+    {
+      'icon': '*',
+      'title': 'PASSWORD LAB',
+      'subtitle': 'fictional lock animation'
+    },
+    {
+      'icon': '☢',
+      'title': 'NUCLEAR PLANT',
+      'subtitle': 'fictional reactor telemetry'
+    },
+    {
+      'icon': '⇄',
+      'title': 'REMOTE CONNECTION',
+      'subtitle': 'fictional handshake'
+    },
+    {
+      'icon': r'$',
+      'title': 'ADVERTISING NODE',
+      'subtitle': 'fictional traffic graph'
+    },
+    {
+      'icon': '↔',
+      'title': 'INTERPOL DATABASE',
+      'subtitle': 'fictional records'
+    },
+    {
+      'icon': '>.',
+      'title': 'PROGRAM CONSOLE',
+      'subtitle': 'fictional terminal stream'
+    },
+  ];
+
+  void _toggleAutomation() {
+    if (_running) {
+      _timer?.cancel();
+      setState(() {
+        _running = false;
+        _logs.add('[SIM] Automation stopped locally.');
+      });
+      return;
+    }
+    setState(() {
+      _running = true;
+      _progress = 0;
+      _logs.add('[SIM] Automate pressed: starting fictional visual sequence.');
+    });
+    _timer = Timer.periodic(const Duration(milliseconds: 180), (timer) {
+      if (!mounted) return;
+      setState(() {
+        _progress = (_progress + 3) % 101;
+        if (_progress % 18 == 0) {
+          _logs.add('[SIM] $_selectedModule visual frame $_progress%');
+          if (_logs.length > 8) _logs.removeAt(0);
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF010701),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF020902),
+        title: const Text('SIMULATION DECK',
+            style: TextStyle(
+                color: Color(0xFF4DFF3D), letterSpacing: 1.5, fontSize: 15)),
+        actions: [
+          IconButton(
+              onPressed: _toggleAutomation,
+              icon: Icon(
+                  _running ? Icons.stop_circle_outlined : Icons.auto_awesome,
+                  color: const Color(0xFF4DFF3D))),
+        ],
+      ),
+      body: Stack(
+        children: [
+          Positioned.fill(
+              child: CustomPaint(
+                  painter: _SimulationGridPainter(progress: _progress))),
+          SafeArea(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 98),
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                      color: const Color(0xFF12200D).withOpacity(0.92),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                          color: const Color(0xFF4DFF3D).withOpacity(0.72))),
+                  child: const Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.warning_amber_rounded,
+                          color: Color(0xFFFFD166), size: 20),
+                      SizedBox(width: 10),
+                      Expanded(
+                          child: Text(
+                              'PRANK MODE — SIMULATION ONLY\nThis screen is a visual effect for entertainment. It does not hack, scan, crack passwords, access cameras, connect to targets, mine crypto, or control infrastructure.',
+                              style: TextStyle(
+                                  color: Color(0xFFB9FFAE),
+                                  fontSize: 11,
+                                  height: 1.35))),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Center(
+                    child: Text('JARVIS // CYBER DECK',
+                        style: TextStyle(
+                            color: const Color(0xFF4DFF3D).withOpacity(0.94),
+                            fontSize: 18,
+                            letterSpacing: 2.6,
+                            fontWeight: FontWeight.w700))),
+                const SizedBox(height: 4),
+                Center(
+                    child: Text(
+                        _running
+                            ? 'AUTOMATION VISUALIZER ACTIVE'
+                            : 'SELECT A TILE OR PRESS AUTOMATE',
+                        style: TextStyle(
+                            color: const Color(0xFF4DFF3D).withOpacity(0.62),
+                            fontSize: 9,
+                            letterSpacing: 1.7))),
+                const SizedBox(height: 18),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: _modules.length,
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      mainAxisSpacing: 12,
+                      crossAxisSpacing: 12,
+                      childAspectRatio: 1.35),
+                  itemBuilder: (context, index) {
+                    final module = _modules[index];
+                    final active = _selectedModule == module['title'];
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () => setState(() {
+                        _selectedModule = module['title']!;
+                        _logs.add(
+                            '[SIM] Selected ${module['title']} visual module.');
+                      }),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                            color: active
+                                ? const Color(0xFF0B2608).withOpacity(0.94)
+                                : const Color(0xFF061006).withOpacity(0.92),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                                color: active
+                                    ? const Color(0xFF4DFF3D)
+                                    : const Color(0xFF4DFF3D).withOpacity(0.36),
+                                width: active ? 1.5 : 0.8),
+                            boxShadow: active
+                                ? [
+                                    BoxShadow(
+                                        color: const Color(0xFF4DFF3D)
+                                            .withOpacity(0.24),
+                                        blurRadius: 18)
+                                  ]
+                                : null),
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(module['icon']!,
+                                  style: const TextStyle(
+                                      color: Color(0xFF4DFF3D),
+                                      fontFamily: 'Orbitron',
+                                      fontSize: 26,
+                                      fontWeight: FontWeight.w700)),
+                              const Spacer(),
+                              Text(module['title']!,
+                                  style: const TextStyle(
+                                      color: Color(0xFF4DFF3D),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 1.0)),
+                              const SizedBox(height: 3),
+                              Text(module['subtitle']!,
+                                  style: TextStyle(
+                                      color: const Color(0xFFB9FFAE)
+                                          .withOpacity(0.62),
+                                      fontSize: 8)),
+                            ]),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  height: 164,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.88),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                          color: const Color(0xFF4DFF3D).withOpacity(0.72))),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('$_selectedModule // LOCAL VISUAL CONSOLE',
+                            style: const TextStyle(
+                                color: Color(0xFF4DFF3D),
+                                fontSize: 10,
+                                letterSpacing: 1.0)),
+                        const SizedBox(height: 6),
+                        Expanded(
+                            child: ListView(
+                                children: _logs
+                                    .map((log) => Text(log,
+                                        style: const TextStyle(
+                                            color: Color(0xFF72FF64),
+                                            fontFamily: 'Orbitron',
+                                            fontSize: 9,
+                                            height: 1.45)))
+                                    .toList())),
+                      ]),
+                ),
+                const SizedBox(height: 14),
+                ElevatedButton.icon(
+                    onPressed: _toggleAutomation,
+                    icon: Icon(_running ? Icons.stop : Icons.play_arrow),
+                    label: Text(_running
+                        ? 'STOP LOCAL SIMULATION'
+                        : 'AUTOMATE VISUAL EFFECT'),
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF4DFF3D),
+                        foregroundColor: Colors.black,
+                        minimumSize: const Size(double.infinity, 50),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)))),
+                const SizedBox(height: 8),
+                Text(
+                    'No outbound network calls are made by this tab. All progress and console text are generated locally for the prank effect.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: Colors.white.withOpacity(0.42),
+                        fontSize: 9,
+                        height: 1.35)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SimulationGridPainter extends CustomPainter {
+  final int progress;
+  const _SimulationGridPainter({required this.progress});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFF4DFF3D).withOpacity(0.045)
+      ..strokeWidth = 0.5;
+    for (var x = 0.0; x < size.width; x += 30)
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    for (var y = 0.0; y < size.height; y += 30)
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    final scan = Paint()..color = const Color(0xFF4DFF3D).withOpacity(0.08);
+    canvas.drawRect(
+        Rect.fromLTWH(0, size.height * (progress / 100), size.width, 2), scan);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SimulationGridPainter oldDelegate) =>
+      oldDelegate.progress != progress;
 }
 
 class TerminalPage extends StatefulWidget {
@@ -834,71 +1799,225 @@ class TerminalPage extends StatefulWidget {
 
 class _TerminalPageState extends State<TerminalPage> {
   final List<String> _logs = [
-    'JARVIS Real Terminal v2080 active. Type ls, mkdir, rm, pwd, uptime.'
+    'JARVIS sandbox terminal ready.',
+    'Real commands: help, ls, pwd, uptime, mkdir <name>, touch <name>, cat <name>, write <name> <text>, rm <name>, stat <name>, clear.',
+    'Safety: recursive deletion, absolute paths, shell execution, and unsupported commands are blocked.',
   ];
   final _ctrl = TextEditingController();
 
+  void _log(String line) {
+    if (!mounted) return;
+    setState(() => _logs.add(line));
+  }
+
+  String? _safeName(String raw) {
+    final name = raw.trim();
+    if (name.isEmpty ||
+        name == '.' ||
+        name == '..' ||
+        name.startsWith('-') ||
+        name.contains('..') ||
+        name.contains('/') ||
+        name.contains('\\')) {
+      return null;
+    }
+    return name;
+  }
+
+  Future<Directory> _workingDirectory() => getApplicationDocumentsDirectory();
+
   Future<void> _runCommand(String cmd) async {
     final command = cmd.trim();
-    setState(() {
-      _logs.add('> $command');
-    });
     _ctrl.clear();
-
+    if (command.isEmpty) return;
+    _log('> $command');
+    final lower = command.toLowerCase();
     try {
-      if (command.startsWith('ls')) {
-        final dir = await getApplicationDocumentsDirectory();
-        final list = dir.listSync();
-        setState(() {
-          _logs.add('Documents dir: ${dir.path}');
-          for (var f in list) {
-            _logs.add(' - ${f.path.split('/').last}');
-          }
-        });
-      } else if (command == 'pwd') {
-        final dir = await getApplicationDocumentsDirectory();
-        setState(() => _logs.add(dir.path));
-      } else if (command == 'uptime') {
-        setState(() => _logs.add(
-            'System uptime: active & optimized. Android SDK ${Platform.operatingSystemVersion}'));
-      } else {
-        setState(() => _logs.add('Command executed: $command'));
+      if (lower == 'clear') {
+        setState(() => _logs.clear());
+        return;
       }
-    } catch (e) {
-      setState(() => _logs.add('Error: $e'));
+      if (lower == 'help') {
+        _log(
+            'help | ls | pwd | uptime | mkdir <name> | touch <name> | cat <name> | write <name> <text> | rm <name> | stat <name> | clear');
+        return;
+      }
+      final dir = await _workingDirectory();
+      if (lower == 'pwd') {
+        _log(dir.path);
+        return;
+      }
+      if (lower == 'ls' || lower.startsWith('ls ')) {
+        final entries = dir
+            .listSync()
+            .map((entry) => entry.path.split('/').last)
+            .toList()
+          ..sort();
+        _log(entries.isEmpty ? '(empty)' : entries.join('  '));
+        return;
+      }
+      if (lower == 'uptime') {
+        final raw = await File('/proc/uptime').readAsString();
+        final seconds = double.tryParse(raw.split(RegExp(r'\s+')).first) ?? 0;
+        _log('Android kernel uptime: ${seconds.toStringAsFixed(1)} seconds');
+        return;
+      }
+      final mkdir =
+          RegExp(r'^mkdir\s+(.+)$', caseSensitive: false).firstMatch(command);
+      if (mkdir != null) {
+        final name = _safeName(mkdir.group(1)!);
+        if (name == null) {
+          _log('Blocked: unsafe directory name.');
+          return;
+        }
+        await Directory('${dir.path}/$name').create();
+        _log('Created directory: $name');
+        return;
+      }
+      final touch =
+          RegExp(r'^touch\s+(.+)$', caseSensitive: false).firstMatch(command);
+      if (touch != null) {
+        final name = _safeName(touch.group(1)!);
+        if (name == null) {
+          _log('Blocked: unsafe file name.');
+          return;
+        }
+        await File('${dir.path}/$name').create();
+        _log('Created file: $name');
+        return;
+      }
+      final cat =
+          RegExp(r'^cat\s+(.+)$', caseSensitive: false).firstMatch(command);
+      if (cat != null) {
+        final name = _safeName(cat.group(1)!);
+        if (name == null) {
+          _log('Blocked: unsafe file name.');
+          return;
+        }
+        final file = File('${dir.path}/$name');
+        if (!await file.exists()) {
+          _log('Not found: $name');
+          return;
+        }
+        _log(await file.readAsString());
+        return;
+      }
+      final write = RegExp(r'^write\s+(\S+)\s+(.+)$', caseSensitive: false)
+          .firstMatch(command);
+      if (write != null) {
+        final name = _safeName(write.group(1)!);
+        if (name == null) {
+          _log('Blocked: unsafe file name.');
+          return;
+        }
+        await File('${dir.path}/$name').writeAsString(write.group(2)!);
+        _log('Wrote ${write.group(2)!.length} characters to $name');
+        return;
+      }
+      final rm =
+          RegExp(r'^rm\s+(.+)$', caseSensitive: false).firstMatch(command);
+      if (rm != null) {
+        if (lower.contains('-rf') ||
+            lower.contains('-r') ||
+            lower.contains('--recursive')) {
+          _log('Blocked: recursive deletion is not allowed.');
+          return;
+        }
+        final name = _safeName(rm.group(1)!);
+        if (name == null) {
+          _log('Blocked: unsafe file name.');
+          return;
+        }
+        final entity = File('${dir.path}/$name');
+        if (!await entity.exists()) {
+          _log('Not found: $name');
+          return;
+        }
+        await entity.delete();
+        _log('Deleted: $name');
+        return;
+      }
+      final stat =
+          RegExp(r'^stat\s+(.+)$', caseSensitive: false).firstMatch(command);
+      if (stat != null) {
+        final name = _safeName(stat.group(1)!);
+        if (name == null) {
+          _log('Blocked: unsafe file name.');
+          return;
+        }
+        final entity = File('${dir.path}/$name');
+        if (!await entity.exists()) {
+          _log('Not found: $name');
+          return;
+        }
+        final info = await entity.stat();
+        _log(
+            'type=${info.type} size=${info.size} modified=${info.modified.toIso8601String()}');
+        return;
+      }
+      _log(
+          'Unsupported command. Nothing was executed. Type help for the safe command list.');
+    } catch (error) {
+      _log('Command failed: $error');
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFF02050C),
       appBar: AppBar(
-          title: const Text('REAL TERMINAL & FILES',
-              style: TextStyle(color: Color(0xFF00F5FF)))),
+        title: const Text('REAL TERMINAL // SANDBOX',
+            style: TextStyle(
+                color: Color(0xFF32F5FF), fontSize: 14, letterSpacing: 1.1)),
+        actions: [
+          IconButton(
+              onPressed: () => _runCommand('help'),
+              icon: const Icon(Icons.help_outline, color: Color(0xFF32F5FF)))
+        ],
+      ),
       body: Column(
         children: [
           Expanded(
             child: Container(
-              color: Colors.black,
+              margin: const EdgeInsets.fromLTRB(10, 10, 10, 0),
               padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.9),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                      color: const Color(0xFF32F5FF).withOpacity(0.42))),
               child: ListView.builder(
                 itemCount: _logs.length,
-                itemBuilder: (c, i) => Text(_logs[i],
-                    style: const TextStyle(
-                        color: Color(0xFF00F5FF),
-                        fontFamily: 'Orbitron',
-                        fontSize: 13)),
+                itemBuilder: (c, i) => Padding(
+                    padding: const EdgeInsets.only(bottom: 5),
+                    child: Text(_logs[i],
+                        style: TextStyle(
+                            color: i == 0
+                                ? const Color(0xFFFFB86B)
+                                : const Color(0xFF8CF8FF),
+                            fontFamily: 'Orbitron',
+                            fontSize: 11,
+                            height: 1.35))),
               ),
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: TextField(
-              controller: _ctrl,
-              onSubmitted: _runCommand,
-              decoration: const InputDecoration(
-                  hintText: 'Enter command (ls, pwd, uptime)...',
-                  border: OutlineInputBorder()),
+            padding: const EdgeInsets.fromLTRB(10, 10, 10, 96),
+            child: JarvisGlass(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              child: TextField(
+                  controller: _ctrl,
+                  onSubmitted: _runCommand,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontFamily: 'Orbitron',
+                      fontSize: 12),
+                  decoration: const InputDecoration(
+                      prefixText: '> ',
+                      prefixStyle: TextStyle(color: Color(0xFF32F5FF)),
+                      hintText: 'help or safe file command...',
+                      border: InputBorder.none)),
             ),
           ),
         ],
@@ -915,74 +2034,343 @@ class MeshRelayPage extends StatefulWidget {
 }
 
 class _MeshRelayPageState extends State<MeshRelayPage> {
-  List<Map<String, dynamic>> _peers = [];
+  final MeshService _mesh = MeshService();
+  final TextEditingController _codeController = TextEditingController();
+  StreamSubscription<MeshEvent>? _events;
+  List<MeshDevice> _discovered = <MeshDevice>[];
+  List<Map<String, dynamic>> _paired = <Map<String, dynamic>>[];
+  MeshEvent? _pendingRequest;
   bool _scanning = false;
+  bool _allowAnytime = false;
+  String _status = 'LAN transport idle';
+
+  @override
+  void initState() {
+    super.initState();
+    _events = _mesh.events.listen(_onMeshEvent);
+    _startMesh();
+  }
+
+  Future<void> _startMesh() async {
+    try {
+      await _mesh.start();
+      if (!mounted) return;
+      setState(() => _status = 'LAN transport listening on TCP 45455');
+      await _refreshPaired();
+    } catch (error) {
+      if (mounted) setState(() => _status = 'Mesh start error: $error');
+    }
+  }
+
+  void _onMeshEvent(MeshEvent event) {
+    if (!mounted) return;
+    if (event.type == 'pair_request') {
+      setState(() {
+        _pendingRequest = event;
+        _status = 'Pair request received — approval required';
+      });
+    }
+  }
+
+  Future<void> _refreshPaired() async {
+    final peers = await _mesh.pairedPeers();
+    if (mounted) setState(() => _paired = peers);
+  }
 
   Future<void> _startScan() async {
-    setState(() => _scanning = true);
+    setState(() {
+      _scanning = true;
+      _status = 'Broadcasting LAN discovery packets...';
+    });
     await [
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
-      Permission.location
+      Permission.location,
     ].request();
-    final discovered = await MeshService().pairedPeers();
+    try {
+      final discovered = await _mesh.discover();
+      final paired = await _mesh.pairedPeers();
+      if (!mounted) return;
+      setState(() {
+        _discovered = discovered;
+        _paired = paired;
+        _scanning = false;
+        _status = discovered.isEmpty
+            ? 'No JARVIS nodes answered on the local network.'
+            : '${discovered.length} node(s) answered over LAN.';
+      });
+    } catch (error) {
+      if (mounted)
+        setState(() {
+          _scanning = false;
+          _status = 'Discovery error: $error';
+        });
+    }
+  }
+
+  Future<void> _pairWith(MeshDevice device) async {
+    _codeController.clear();
+    final code = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF0A1726),
+        title: Text('Pair with ${device.name}',
+            style: const TextStyle(color: Color(0xFF32F5FF), fontSize: 16)),
+        content: TextField(
+          controller: _codeController,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          maxLength: 6,
+          style: const TextStyle(color: Colors.white, letterSpacing: 5),
+          decoration: const InputDecoration(
+              labelText: 'Enter the 6-digit code shown on target device',
+              counterText: '',
+              border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('CANCEL')),
+          FilledButton(
+              onPressed: () =>
+                  Navigator.pop(context, _codeController.text.trim()),
+              child: const Text('SEND REQUEST')),
+        ],
+      ),
+    );
+    if (code == null || !RegExp(r'^\d{6}$').hasMatch(code)) {
+      if (mounted)
+        setState(() => _status = 'Pairing cancelled or invalid code format.');
+      return;
+    }
+    setState(() =>
+        _status = 'Sending code to ${device.name} — waiting for approval...');
+    try {
+      final response = await _mesh.connect(device: device, pairingCode: code);
+      final status = '${response['status'] ?? 'unknown'}';
+      if (status == 'approved') {
+        await _refreshPaired();
+        if (mounted)
+          setState(
+              () => _status = 'Pairing approved. LAN control is available.');
+      } else if (mounted) {
+        setState(() => _status = status == 'pending_approval'
+            ? 'Target approval is still pending.'
+            : 'Pairing result: $status');
+      }
+    } catch (error) {
+      if (mounted) setState(() => _status = 'Pairing transport error: $error');
+    }
+  }
+
+  Future<void> _approve(bool approved) async {
+    final request = _pendingRequest;
+    if (request == null) return;
+    final ok = await _mesh.approvePair(
+        requestId: request.requestId,
+        approved: approved,
+        anytime: _allowAnytime);
+    if (!mounted) return;
     setState(() {
-      _peers = discovered;
-      _scanning = false;
+      _pendingRequest = null;
+      _status = ok
+          ? (approved ? 'Pair request approved.' : 'Pair request rejected.')
+          : 'Approval response failed.';
     });
+    if (approved) await _refreshPaired();
+  }
+
+  @override
+  void dispose() {
+    _events?.cancel();
+    _codeController.dispose();
+    _mesh.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFF02050C),
       appBar: AppBar(
-          title: const Text('REAL MESH NETWORK',
-              style: TextStyle(color: Color(0xFF00F5FF)))),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ElevatedButton.icon(
+        title: const Text('NEARBY YOU // REAL LAN MESH',
+            style: TextStyle(
+                color: Color(0xFF32F5FF), fontSize: 14, letterSpacing: 1.1)),
+        actions: [
+          IconButton(
+              onPressed: _startScan,
+              icon: const Icon(Icons.radar, color: Color(0xFF32F5FF)))
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+        children: [
+          JarvisGlass(
+            child: FutureBuilder<List<String>>(
+              future: Future.wait([_mesh.deviceName, _mesh.pairingCode]),
+              builder: (context, snapshot) {
+                final values = snapshot.data ?? const <String>[];
+                return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('THIS DEVICE',
+                          style: TextStyle(
+                              color: Color(0xFF32F5FF),
+                              fontSize: 10,
+                              letterSpacing: 1.6)),
+                      const SizedBox(height: 8),
+                      Text(values.isEmpty ? 'Loading identity...' : values[0],
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 4),
+                      Text(
+                          values.length < 2
+                              ? 'Pair code loading...'
+                              : 'Pair code: ${values[1]}',
+                          style: const TextStyle(
+                              color: Color(0xFFFFB86B),
+                              fontSize: 18,
+                              letterSpacing: 4,
+                              fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 6),
+                      Text(
+                          'Share this code only with a device you trust. LAN discovery does not use the fake simulation tab.',
+                          style: TextStyle(
+                              color: Colors.white.withOpacity(0.52),
+                              fontSize: 10,
+                              height: 1.35)),
+                    ]);
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (_pendingRequest != null)
+            JarvisGlass(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('INCOMING PAIR REQUEST',
+                        style: TextStyle(
+                            color: Color(0xFFFFB86B),
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.2)),
+                    const SizedBox(height: 6),
+                    Text(
+                        '${_pendingRequest!.deviceName} wants to connect over LAN.',
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 13)),
+                    SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: _allowAnytime,
+                        onChanged: (value) =>
+                            setState(() => _allowAnytime = value),
+                        title: const Text('Allow access anytime',
+                            style:
+                                TextStyle(color: Colors.white, fontSize: 12)),
+                        subtitle: const Text(
+                            'Keep this approval local and explicit.',
+                            style: TextStyle(
+                                color: Colors.white54, fontSize: 10))),
+                    Row(children: [
+                      Expanded(
+                          child: OutlinedButton(
+                              onPressed: () => _approve(false),
+                              child: const Text('REJECT'))),
+                      const SizedBox(width: 10),
+                      Expanded(
+                          child: FilledButton(
+                              onPressed: () => _approve(true),
+                              child: const Text('APPROVE')))
+                    ]),
+                  ]),
+            ),
+          if (_pendingRequest != null) const SizedBox(height: 12),
+          Text(_status,
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.58), fontSize: 11)),
+          const SizedBox(height: 10),
+          FilledButton.icon(
               onPressed: _scanning ? null : _startScan,
-              icon: const Icon(Icons.radar),
+              icon: const Icon(Icons.wifi_find),
               label: Text(_scanning
-                  ? 'Scanning Bluetooth/LAN...'
-                  : 'Scan Nearby Devices'),
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF00F5FF),
-                  foregroundColor: Colors.black),
-            ),
-            const SizedBox(height: 16),
-            const Text('Connected & Paired Nodes',
+                  ? 'DISCOVERING LAN NODES...'
+                  : 'DISCOVER NEARBY JARVIS DEVICES'),
+              style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF32F5FF),
+                  foregroundColor: Colors.black,
+                  minimumSize: const Size(double.infinity, 48))),
+          const SizedBox(height: 18),
+          const Text('DISCOVERED NODES',
+              style: TextStyle(
+                  color: Color(0xFF32F5FF),
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.5)),
+          const SizedBox(height: 8),
+          if (_discovered.isEmpty)
+            Text('No unpaired LAN nodes in this session.',
                 style: TextStyle(
-                    color: Color(0xFF00F5FF),
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            Expanded(
-              child: _peers.isEmpty
-                  ? const Center(
-                      child: Text(
-                          'No nearby mesh nodes found. Tap scan to discover devices.'))
-                  : ListView.builder(
-                      itemCount: _peers.length,
-                      itemBuilder: (context, index) {
-                        final p = _peers[index];
-                        return ListTile(
-                          leading: const Icon(Icons.phone_android,
-                              color: Color(0xFF00F5FF)),
-                          title: Text(p['name'] ?? 'Unknown Node'),
-                          subtitle: Text(
-                              'ID: ${p['peerId']} | Transport: ${p['transport']}'),
-                          trailing: const Text('PAIRED',
-                              style: TextStyle(color: Colors.green)),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
+                    color: Colors.white.withOpacity(0.42), fontSize: 11)),
+          ..._discovered.map((device) => JarvisGlass(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.phone_android,
+                        color: Color(0xFF32F5FF)),
+                    title: Text(device.name,
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 13)),
+                    subtitle: Text(
+                        '${device.host}:${device.port} · ${device.transport}',
+                        style: const TextStyle(
+                            color: Colors.white54, fontSize: 10)),
+                    trailing: TextButton(
+                        onPressed: () => _pairWith(device),
+                        child: const Text('PAIR'))),
+              )),
+          const SizedBox(height: 18),
+          const Text('PAIRED NODES',
+              style: TextStyle(
+                  color: Color(0xFF32F5FF),
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.5)),
+          const SizedBox(height: 8),
+          if (_paired.isEmpty)
+            Text('No approved peers stored by this native transport.',
+                style: TextStyle(
+                    color: Colors.white.withOpacity(0.42), fontSize: 11)),
+          ..._paired.map((peer) => JarvisGlass(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.verified_user_outlined,
+                        color: Color(0xFF57F287)),
+                    title: Text('${peer['name'] ?? 'JARVIS Device'}',
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 13)),
+                    subtitle: Text(
+                        '${peer['host'] ?? ''}:${peer['port'] ?? ''} · ${peer['transport'] ?? 'LAN'}',
+                        style: const TextStyle(
+                            color: Colors.white54, fontSize: 10)),
+                    trailing: IconButton(
+                        onPressed: () async {
+                          await _mesh.revoke('${peer['peerId'] ?? ''}');
+                          await _refreshPaired();
+                        },
+                        icon: const Icon(Icons.link_off,
+                            color: Colors.redAccent))),
+              )),
+          const SizedBox(height: 14),
+          Text(
+              'Real transport note: the current native bridge uses LAN UDP discovery and TCP approval. Bluetooth permissions are requested for Android compatibility, but this screen does not claim a Bluetooth link unless the native transport reports one.',
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.42),
+                  fontSize: 10,
+                  height: 1.35)),
+        ],
       ),
     );
   }
@@ -996,10 +2384,12 @@ class GpsViewerPage extends StatefulWidget {
 }
 
 class _GpsViewerPageState extends State<GpsViewerPage> {
-  String _lat = 'Fetching...';
-  String _lng = 'Fetching...';
-  String _battery = 'Fetching...';
-  String _charging = 'Fetching...';
+  String _lat = 'Unavailable';
+  String _lng = 'Unavailable';
+  String _battery = 'Unavailable';
+  String _charging = 'Unavailable';
+  String _status = 'Waiting for a real permission-approved fix.';
+  bool _hasFix = false;
 
   @override
   void initState() {
@@ -1008,62 +2398,116 @@ class _GpsViewerPageState extends State<GpsViewerPage> {
   }
 
   Future<void> _fetchTelemetry() async {
-    await Permission.location.request();
-    const system = MethodChannel('com.ultimate.jarvis/system');
-    try {
-      final loc =
-          await system.invokeMethod<Map<dynamic, dynamic>>('getLocation');
-      final bat =
-          await system.invokeMethod<Map<dynamic, dynamic>>('getBatteryStatus');
-      setState(() {
-        _lat = loc?['latitude']?.toString() ?? '28.6139';
-        _lng = loc?['longitude']?.toString() ?? '77.2090';
-        _battery = '${bat?['percent'] ?? 92}%';
-        _charging = (bat?['charging'] == true) ? 'Charging' : 'Not Charging';
-      });
-    } catch (e) {
-      setState(() {
-        _lat = '28.6139 (Default)';
-        _lng = '77.2090 (Default)';
-        _battery = '92%';
-        _charging = 'Charging';
-      });
+    final permission = await Permission.location.request();
+    if (!permission.isGranted) {
+      if (mounted)
+        setState(() => _status =
+            'Location permission is required; no coordinates are shown.');
+      return;
     }
+    try {
+      final loc = await SystemService.location();
+      final bat = await SystemService.batteryStatus();
+      final ok = loc['status'] == 'ok' &&
+          loc['latitude'] != null &&
+          loc['longitude'] != null;
+      if (!mounted) return;
+      setState(() {
+        _hasFix = ok;
+        _lat = ok ? '${loc['latitude']}' : 'Unavailable';
+        _lng = ok ? '${loc['longitude']}' : 'Unavailable';
+        _battery =
+            bat['percent'] == null ? 'Unavailable' : '${bat['percent']}%';
+        _charging = bat['chargingState']?.toString() ?? 'Unavailable';
+        _status = ok
+            ? 'Real Android location fix received.'
+            : 'Android did not return a current location: ${loc['status'] ?? 'unknown'}.';
+      });
+    } catch (error) {
+      if (mounted) setState(() => _status = 'Telemetry error: $error');
+    }
+  }
+
+  Future<void> _openMap() async {
+    if (!_hasFix) return;
+    final uri = Uri.parse(
+        'https://www.google.com/maps/search/?api=1&query=$_lat,$_lng');
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (mounted && !opened)
+      setState(() => _status = 'Could not open Google Maps.');
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFF02050C),
       appBar: AppBar(
-          title: const Text('GPS VIEWER & TELEMETRY',
-              style: TextStyle(color: Color(0xFF00F5FF)))),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
-                  borderRadius: BorderRadius.circular(8)),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Real Device Location & Telemetry',
-                      style: TextStyle(
-                          color: Color(0xFF00F5FF),
-                          fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 12),
-                  Text('Latitude: $_lat'),
-                  Text('Longitude: $_lng'),
-                  Text('Battery: $_battery ($_charging)'),
-                  const Text('Real-time Distance: 0.0 meters (Local Device)'),
-                ],
-              ),
-            ),
-          ],
-        ),
+        title: const Text('GPS VIEWER // REAL TELEMETRY',
+            style: TextStyle(
+                color: Color(0xFF32F5FF), fontSize: 14, letterSpacing: 1.1)),
+        actions: [
+          IconButton(
+              onPressed: _fetchTelemetry,
+              icon: const Icon(Icons.refresh, color: Color(0xFF32F5FF)))
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 100),
+        children: [
+          JarvisGlass(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('CURRENT DEVICE',
+                  style: TextStyle(
+                      color: Color(0xFF32F5FF),
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.4)),
+              const SizedBox(height: 12),
+              Text('Latitude: $_lat',
+                  style: const TextStyle(color: Colors.white, fontSize: 13)),
+              const SizedBox(height: 5),
+              Text('Longitude: $_lng',
+                  style: const TextStyle(color: Colors.white, fontSize: 13)),
+              const SizedBox(height: 5),
+              Text('Battery: $_battery · $_charging',
+                  style: const TextStyle(color: Colors.white, fontSize: 13)),
+              const SizedBox(height: 12),
+              Text(_status,
+                  style: TextStyle(
+                      color: Colors.white.withOpacity(0.56),
+                      fontSize: 10,
+                      height: 1.35)),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                  onPressed: _hasFix ? _openMap : null,
+                  icon: const Icon(Icons.map_outlined),
+                  label: const Text('SEE ON GOOGLE MAPS')),
+            ]),
+          ),
+          const SizedBox(height: 14),
+          JarvisGlass(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('PAIRED DEVICE TELEMETRY',
+                  style: TextStyle(
+                      color: Color(0xFF32F5FF),
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.2)),
+              const SizedBox(height: 8),
+              Text(
+                  'Remote latitude, longitude, battery, charging state, and distance appear only after an approved peer sends fresh telemetry over the real mesh transport. No placeholder coordinates are shown.',
+                  style: TextStyle(
+                      color: Colors.white.withOpacity(0.52),
+                      fontSize: 11,
+                      height: 1.4)),
+              const SizedBox(height: 8),
+              Text('Distance: waiting for paired peer telemetry',
+                  style: TextStyle(
+                      color: const Color(0xFFFFB86B).withOpacity(0.82),
+                      fontSize: 11)),
+            ]),
+          ),
+        ],
       ),
     );
   }
