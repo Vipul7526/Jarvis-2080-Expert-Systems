@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1786850483596,
+      "tag": "0000_many_rhino",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1786851269748,
+      "tag": "0001_dusty_arachne",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1786862983914,
+      "tag": "0002_faulty_green_goblin",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1787128882042,
+      "tag": "0003_smart_hulk",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1787131693987,
+      "tag": "0004_lowly_layla_miller",
+      "breakpoints": true
+    }
+  ]
+}

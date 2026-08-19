@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'services/auth_service.dart';
 import 'services/mesh_service.dart';
 import 'services/system_service.dart';
+import 'services/tab_lock_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -187,32 +188,36 @@ class _HolographicCoreState extends State<HolographicCore>
               Transform.scale(
                 scale: pulse,
                 child: Container(
-                  width: widget.size * 0.26,
-                  height: widget.size * 0.26,
+                  width: widget.size * 0.18,
+                  height: widget.size * 0.18,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: RadialGradient(
                       colors: [
                         Colors.white,
                         _accent,
-                        _accent.withOpacity(0.18)
+                        _accent.withOpacity(0.12),
                       ],
-                      stops: const [0.0, 0.28, 1.0],
+                      stops: const [0.0, 0.22, 1.0],
+                    ),
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.72),
+                      width: 1.2,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: _accent.withOpacity(0.95),
-                        blurRadius: 30 + widget.intensity * 18,
-                        spreadRadius: 5,
+                        color: _accent.withOpacity(0.96),
+                        blurRadius: 34 + widget.intensity * 20,
+                        spreadRadius: 6,
                       ),
                     ],
                   ),
                   child: Icon(
                     widget.state == JarvisVisualState.listening
-                        ? Icons.mic
-                        : Icons.bolt,
+                        ? Icons.mic_none_rounded
+                        : Icons.bolt_rounded,
                     color: const Color(0xFF03101A),
-                    size: widget.size * 0.10,
+                    size: widget.size * 0.075,
                   ),
                 ),
               ),
@@ -256,21 +261,46 @@ class _ParticleSpherePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = size.center(Offset.zero);
-    final radius = size.shortestSide * 0.36;
-    for (var i = 0; i < 150; i++) {
+    final radius = size.shortestSide * 0.37;
+    final glow = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          color.withOpacity(0.22 + intensity * 0.12),
+          color.withOpacity(0.045),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.52, 1.0],
+      ).createShader(Rect.fromCircle(center: center, radius: radius * 1.55));
+    canvas.drawCircle(center, radius * 1.32, glow);
+
+    for (var i = 0; i < 420; i++) {
       final seed = (i * 0.6180339887) % 1.0;
       final latitude = math.asin(-1.0 + 2.0 * seed);
-      final longitude = i * 2.3999632297 + phase * (0.28 + seed * 0.22);
+      final longitude = i * 2.3999632297 + phase * (0.34 + seed * 0.30);
+      final shell = radius * (0.88 + (math.sin(i * 7.13) + 1) * 0.035);
       final depth = math.cos(latitude) * math.cos(longitude);
-      final x = math.cos(latitude) * math.sin(longitude) * radius;
-      final y = math.sin(latitude) * radius;
-      final perspective = 0.72 + 0.28 * ((depth + 1) / 2);
+      final x = math.cos(latitude) * math.sin(longitude) * shell;
+      final y = math.sin(latitude) * shell;
+      final perspective = 0.52 + 0.48 * ((depth + 1) / 2);
       final point = Offset(center.dx + x, center.dy + y);
-      final opacity = (0.15 + perspective * 0.75) * (0.72 + intensity * 0.45);
-      final sizeFactor =
-          0.6 + perspective * 1.5 + math.sin(phase * 2 + i) * 0.35;
-      final paint = Paint()..color = color.withOpacity(opacity.clamp(0.0, 1.0));
-      canvas.drawCircle(point, sizeFactor, paint);
+      final opacity = (0.12 + perspective * 0.76) *
+          (0.70 + intensity * 0.55) *
+          (0.72 + math.sin(phase * 3.0 + i * 0.17) * 0.18);
+      final sizeFactor = 0.45 +
+          perspective * 1.45 +
+          math.max(0, math.sin(phase * 4 + i * 0.71)) * 0.65;
+      final particle = Paint()
+        ..color = color.withOpacity(opacity.clamp(0.0, 1.0))
+        ..strokeCap = StrokeCap.round;
+      canvas.drawCircle(point, sizeFactor, particle);
+
+      if (i % 31 == 0 && depth > -0.2) {
+        final trail = Offset(
+          point.dx + math.cos(longitude) * 5.0,
+          point.dy + math.sin(latitude) * 5.0,
+        );
+        canvas.drawLine(point, trail, particle..strokeWidth = 0.8);
+      }
     }
   }
 
@@ -640,7 +670,7 @@ class _MainDashboardState extends State<MainDashboard> {
     TerminalPage(),
     MeshRelayPage(),
     GpsViewerPage(),
-    HackingDashboardPage(),
+    TabLockPage(),
     SettingsPage(),
   ];
 
@@ -661,7 +691,7 @@ class _MainDashboardState extends State<MainDashboard> {
                 setState(() => _currentIndex = index),
             backgroundColor: const Color(0xFF07101D).withOpacity(0.96),
             indicatorColor: const Color(0xFF00F5FF).withOpacity(0.18),
-            labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+            labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
             destinations: const [
               NavigationDestination(
                   icon: Icon(Icons.bolt_outlined),
@@ -680,9 +710,9 @@ class _MainDashboardState extends State<MainDashboard> {
                   selectedIcon: Icon(Icons.location_on),
                   label: 'GPS'),
               NavigationDestination(
-                  icon: Icon(Icons.security_outlined),
-                  selectedIcon: Icon(Icons.security),
-                  label: 'Sim'),
+                  icon: Icon(Icons.lock_outline),
+                  selectedIcon: Icon(Icons.lock),
+                  label: 'Tab Lock'),
               NavigationDestination(
                   icon: Icon(Icons.settings_outlined),
                   selectedIcon: Icon(Icons.settings),
@@ -834,7 +864,7 @@ class _AssistantPageState extends State<AssistantPage>
         lower.contains('hacking dashboard') ||
         lower == 'simulation') {
       _addAssistant(
-          'Open the SIM tab for a clearly labelled prank-only visual simulation. It performs no hacking, scanning, cracking, or remote access.');
+          'That visual simulation module has been removed. I can help with real device, mesh, terminal, GPS, and assistant tasks.');
       return;
     }
     if (lower.startsWith('open ') || lower.startsWith('launch ')) {
@@ -966,18 +996,34 @@ class _AssistantPageState extends State<AssistantPage>
     final resolution = await SystemService.resolvePackage(appName);
     final status = resolution['status']?.toString() ?? 'unknown';
     final packageName = resolution['packageName']?.toString() ?? '';
+    final label = resolution['label']?.toString() ?? appName;
     if (status == 'installed' && packageName.isNotEmpty) {
       final launch = await SystemService.launchPackage(packageName);
       _addAssistant(launch['status'] == 'launched'
-          ? 'Launched $appName ($packageName).'
-          : 'Android could not launch $packageName.');
-    } else if (status == 'not_installed' && packageName.isNotEmpty) {
+          ? 'Found installed app $label and launched it. Package: $packageName.'
+          : 'I found $label ($packageName), but Android could not launch it.');
+      return;
+    }
+    if (status == 'not_found') {
+      final suggestions = (resolution['suggestions'] as List?)
+              ?.map((item) => item is Map
+                  ? '${item['label']} (${item['packageName']})'
+                  : item.toString())
+              .join(', ') ??
+          '';
+      _addAssistant(suggestions.isEmpty
+          ? 'No installed launcher app matched "$appName". I will not guess or launch an unrelated package.'
+          : 'No exact installed app matched "$appName". Possible installed matches: $suggestions. Say the exact app name or package.');
+      return;
+    }
+    if (status == 'not_installed' && packageName.isNotEmpty) {
       _lastMissingPackage = packageName;
       _addAssistant(
-          '$appName is not installed. Package: $packageName. Type “y- install” to open the official store page.');
-    } else {
-      _addAssistant('No installed package mapping found for "$appName".');
+          '$appName is not installed. Package: $packageName. Type “y- install $packageName” to open its official store page.');
+      return;
     }
+    _addAssistant(
+        'The installed-app scan returned no launchable match for "$appName".');
   }
 
   Future<void> _launchPackageDirect(String packageName) async {
@@ -1480,315 +1526,6 @@ const List<JarvisCommandSpec> jarvisCommandCatalog = <JarvisCommandSpec>[
   JarvisCommandSpec('Draft a help response', 'Configured AI endpoint'),
   JarvisCommandSpec('Show what JARVIS can do', 'Command catalog', real: true),
 ];
-
-class HackingDashboardPage extends StatefulWidget {
-  const HackingDashboardPage({Key? key}) : super(key: key);
-
-  @override
-  State<HackingDashboardPage> createState() => _HackingDashboardPageState();
-}
-
-class _HackingDashboardPageState extends State<HackingDashboardPage> {
-  Timer? _timer;
-  bool _running = false;
-  int _progress = 0;
-  String _selectedModule = 'PRANK CONSOLE';
-  final List<String> _logs = <String>[
-    '[SIM] Local visual console ready.',
-    '[SIM] No network, device, password, or target access is performed.',
-  ];
-
-  final List<Map<String, String>> _modules = const [
-    {
-      'icon': '₿',
-      'title': 'BITCOIN MINER',
-      'subtitle': 'fictional hash stream'
-    },
-    {
-      'icon': '⌂',
-      'title': 'HQ SURVEILLANCE',
-      'subtitle': 'fictional camera feed'
-    },
-    {
-      'icon': '*',
-      'title': 'PASSWORD LAB',
-      'subtitle': 'fictional lock animation'
-    },
-    {
-      'icon': '☢',
-      'title': 'NUCLEAR PLANT',
-      'subtitle': 'fictional reactor telemetry'
-    },
-    {
-      'icon': '⇄',
-      'title': 'REMOTE CONNECTION',
-      'subtitle': 'fictional handshake'
-    },
-    {
-      'icon': r'$',
-      'title': 'ADVERTISING NODE',
-      'subtitle': 'fictional traffic graph'
-    },
-    {
-      'icon': '↔',
-      'title': 'INTERPOL DATABASE',
-      'subtitle': 'fictional records'
-    },
-    {
-      'icon': '>.',
-      'title': 'PROGRAM CONSOLE',
-      'subtitle': 'fictional terminal stream'
-    },
-  ];
-
-  void _toggleAutomation() {
-    if (_running) {
-      _timer?.cancel();
-      setState(() {
-        _running = false;
-        _logs.add('[SIM] Automation stopped locally.');
-      });
-      return;
-    }
-    setState(() {
-      _running = true;
-      _progress = 0;
-      _logs.add('[SIM] Automate pressed: starting fictional visual sequence.');
-    });
-    _timer = Timer.periodic(const Duration(milliseconds: 180), (timer) {
-      if (!mounted) return;
-      setState(() {
-        _progress = (_progress + 3) % 101;
-        if (_progress % 18 == 0) {
-          _logs.add('[SIM] $_selectedModule visual frame $_progress%');
-          if (_logs.length > 8) _logs.removeAt(0);
-        }
-      });
-    });
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF010701),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF020902),
-        title: const Text('SIMULATION DECK',
-            style: TextStyle(
-                color: Color(0xFF4DFF3D), letterSpacing: 1.5, fontSize: 15)),
-        actions: [
-          IconButton(
-              onPressed: _toggleAutomation,
-              icon: Icon(
-                  _running ? Icons.stop_circle_outlined : Icons.auto_awesome,
-                  color: const Color(0xFF4DFF3D))),
-        ],
-      ),
-      body: Stack(
-        children: [
-          Positioned.fill(
-              child: CustomPaint(
-                  painter: _SimulationGridPainter(progress: _progress))),
-          SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 98),
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                      color: const Color(0xFF12200D).withOpacity(0.92),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                          color: const Color(0xFF4DFF3D).withOpacity(0.72))),
-                  child: const Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.warning_amber_rounded,
-                          color: Color(0xFFFFD166), size: 20),
-                      SizedBox(width: 10),
-                      Expanded(
-                          child: Text(
-                              'PRANK MODE — SIMULATION ONLY\nThis screen is a visual effect for entertainment. It does not hack, scan, crack passwords, access cameras, connect to targets, mine crypto, or control infrastructure.',
-                              style: TextStyle(
-                                  color: Color(0xFFB9FFAE),
-                                  fontSize: 11,
-                                  height: 1.35))),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Center(
-                    child: Text('JARVIS // CYBER DECK',
-                        style: TextStyle(
-                            color: const Color(0xFF4DFF3D).withOpacity(0.94),
-                            fontSize: 18,
-                            letterSpacing: 2.6,
-                            fontWeight: FontWeight.w700))),
-                const SizedBox(height: 4),
-                Center(
-                    child: Text(
-                        _running
-                            ? 'AUTOMATION VISUALIZER ACTIVE'
-                            : 'SELECT A TILE OR PRESS AUTOMATE',
-                        style: TextStyle(
-                            color: const Color(0xFF4DFF3D).withOpacity(0.62),
-                            fontSize: 9,
-                            letterSpacing: 1.7))),
-                const SizedBox(height: 18),
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: _modules.length,
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      mainAxisSpacing: 12,
-                      crossAxisSpacing: 12,
-                      childAspectRatio: 1.35),
-                  itemBuilder: (context, index) {
-                    final module = _modules[index];
-                    final active = _selectedModule == module['title'];
-                    return InkWell(
-                      borderRadius: BorderRadius.circular(14),
-                      onTap: () => setState(() {
-                        _selectedModule = module['title']!;
-                        _logs.add(
-                            '[SIM] Selected ${module['title']} visual module.');
-                      }),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                            color: active
-                                ? const Color(0xFF0B2608).withOpacity(0.94)
-                                : const Color(0xFF061006).withOpacity(0.92),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                                color: active
-                                    ? const Color(0xFF4DFF3D)
-                                    : const Color(0xFF4DFF3D).withOpacity(0.36),
-                                width: active ? 1.5 : 0.8),
-                            boxShadow: active
-                                ? [
-                                    BoxShadow(
-                                        color: const Color(0xFF4DFF3D)
-                                            .withOpacity(0.24),
-                                        blurRadius: 18)
-                                  ]
-                                : null),
-                        child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(module['icon']!,
-                                  style: const TextStyle(
-                                      color: Color(0xFF4DFF3D),
-                                      fontFamily: 'Orbitron',
-                                      fontSize: 26,
-                                      fontWeight: FontWeight.w700)),
-                              const Spacer(),
-                              Text(module['title']!,
-                                  style: const TextStyle(
-                                      color: Color(0xFF4DFF3D),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w700,
-                                      letterSpacing: 1.0)),
-                              const SizedBox(height: 3),
-                              Text(module['subtitle']!,
-                                  style: TextStyle(
-                                      color: const Color(0xFFB9FFAE)
-                                          .withOpacity(0.62),
-                                      fontSize: 8)),
-                            ]),
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  height: 164,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.88),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                          color: const Color(0xFF4DFF3D).withOpacity(0.72))),
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('$_selectedModule // LOCAL VISUAL CONSOLE',
-                            style: const TextStyle(
-                                color: Color(0xFF4DFF3D),
-                                fontSize: 10,
-                                letterSpacing: 1.0)),
-                        const SizedBox(height: 6),
-                        Expanded(
-                            child: ListView(
-                                children: _logs
-                                    .map((log) => Text(log,
-                                        style: const TextStyle(
-                                            color: Color(0xFF72FF64),
-                                            fontFamily: 'Orbitron',
-                                            fontSize: 9,
-                                            height: 1.45)))
-                                    .toList())),
-                      ]),
-                ),
-                const SizedBox(height: 14),
-                ElevatedButton.icon(
-                    onPressed: _toggleAutomation,
-                    icon: Icon(_running ? Icons.stop : Icons.play_arrow),
-                    label: Text(_running
-                        ? 'STOP LOCAL SIMULATION'
-                        : 'AUTOMATE VISUAL EFFECT'),
-                    style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF4DFF3D),
-                        foregroundColor: Colors.black,
-                        minimumSize: const Size(double.infinity, 50),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14)))),
-                const SizedBox(height: 8),
-                Text(
-                    'No outbound network calls are made by this tab. All progress and console text are generated locally for the prank effect.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        color: Colors.white.withOpacity(0.42),
-                        fontSize: 9,
-                        height: 1.35)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SimulationGridPainter extends CustomPainter {
-  final int progress;
-  const _SimulationGridPainter({required this.progress});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = const Color(0xFF4DFF3D).withOpacity(0.045)
-      ..strokeWidth = 0.5;
-    for (var x = 0.0; x < size.width; x += 30)
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-    for (var y = 0.0; y < size.height; y += 30)
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
-    final scan = Paint()..color = const Color(0xFF4DFF3D).withOpacity(0.08);
-    canvas.drawRect(
-        Rect.fromLTWH(0, size.height * (progress / 100), size.width, 2), scan);
-  }
-
-  @override
-  bool shouldRepaint(covariant _SimulationGridPainter oldDelegate) =>
-      oldDelegate.progress != progress;
-}
 
 class TerminalPage extends StatefulWidget {
   const TerminalPage({Key? key}) : super(key: key);
@@ -2509,6 +2246,441 @@ class _GpsViewerPageState extends State<GpsViewerPage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class TabLockPage extends StatefulWidget {
+  const TabLockPage({Key? key}) : super(key: key);
+
+  @override
+  State<TabLockPage> createState() => _TabLockPageState();
+}
+
+class _TabLockPageState extends State<TabLockPage> {
+  final TabLockService _service = TabLockService();
+  final _domainController = TextEditingController();
+  final _secretController = TextEditingController();
+  final _pairingController = TextEditingController();
+  final _deviceNameController = TextEditingController(text: 'JARVIS Android');
+  TabLockSnapshot? _snapshot;
+  Map<String, dynamic> _local = const {};
+  String _mode = 'block';
+  String _failurePage = 'blocked';
+  bool _relockOnRefresh = true;
+  bool _loading = true;
+  String _status = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _domainController.dispose();
+    _secretController.dispose();
+    _pairingController.dispose();
+    _deviceNameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      final local = await _service.localState();
+      TabLockSnapshot? snapshot;
+      if (local['registered'] == true) snapshot = await _service.sync();
+      if (!mounted) return;
+      setState(() {
+        _local = local;
+        _snapshot = snapshot;
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _status = error.toString().replaceFirst('Bad state: ', '');
+      });
+    }
+  }
+
+  Future<void> _register() async {
+    setState(() => _status = 'Registering this Android controller…');
+    try {
+      final result = await _service.registerController(
+          deviceName: _deviceNameController.text.trim().isEmpty
+              ? 'JARVIS Android'
+              : _deviceNameController.text.trim());
+      final local = await _service.localState();
+      if (!mounted) return;
+      setState(() {
+        _local = local;
+        _status =
+            'One-time code ready: ${result['pairingCode']}. Enter it in the Chrome extension.';
+      });
+    } catch (error) {
+      if (mounted)
+        setState(
+            () => _status = error.toString().replaceFirst('Bad state: ', ''));
+    }
+  }
+
+  Future<void> _pair() async {
+    final code = _pairingController.text.trim();
+    if (!RegExp(r'^\d{8}$').hasMatch(code)) {
+      setState(() => _status =
+          'Enter the exact 8-digit code shown by the Chrome extension.');
+      return;
+    }
+    setState(() => _status = 'Pairing browser device…');
+    try {
+      await _service.pairExtension(
+        pairingCode: code,
+        deviceName: _deviceNameController.text.trim().isEmpty
+            ? 'JARVIS Android'
+            : _deviceNameController.text.trim(),
+      );
+      final snapshot = await _service.sync();
+      if (!mounted) return;
+      setState(() {
+        _snapshot = snapshot;
+        _status =
+            'Browser paired. Policies will sync every five minutes while the extension is enabled.';
+      });
+    } catch (error) {
+      if (mounted)
+        setState(
+            () => _status = error.toString().replaceFirst('Bad state: ', ''));
+    }
+  }
+
+  Future<void> _savePolicy() async {
+    final domain = _domainController.text.trim();
+    if (domain.isEmpty) {
+      setState(() => _status = 'Enter a domain such as example.com.');
+      return;
+    }
+    setState(() => _status = 'Saving policy…');
+    try {
+      final snapshot = await _service.upsertPolicy(
+        domain: domain,
+        mode: _mode,
+        secret: _mode == 'lock' ? _secretController.text : null,
+        failurePage: _failurePage,
+        relockOnRefresh: _relockOnRefresh,
+      );
+      if (!mounted) return;
+      setState(() {
+        _snapshot = snapshot;
+        _domainController.clear();
+        _secretController.clear();
+        _status =
+            'Policy saved for every path under ${domain.toLowerCase()}. Chrome will enforce it after the next sync.';
+      });
+    } catch (error) {
+      if (mounted)
+        setState(
+            () => _status = error.toString().replaceFirst('Bad state: ', ''));
+    }
+  }
+
+  Future<void> _deletePolicy(String domain) async {
+    try {
+      final snapshot = await _service.deletePolicy(domain);
+      if (mounted)
+        setState(() {
+          _snapshot = snapshot;
+          _status = 'Policy removed for $domain.';
+        });
+    } catch (error) {
+      if (mounted)
+        setState(
+            () => _status = error.toString().replaceFirst('Bad state: ', ''));
+    }
+  }
+
+  Future<void> _revokeDevice(String deviceId) async {
+    try {
+      final snapshot = await _service.revokeDevice(deviceId);
+      if (mounted)
+        setState(() {
+          _snapshot = snapshot;
+          _status =
+              'Device revoked. Its bearer token will no longer sync policies.';
+        });
+    } catch (error) {
+      if (mounted)
+        setState(
+            () => _status = error.toString().replaceFirst('Bad state: ', ''));
+    }
+  }
+
+  Widget _section(String title, Widget child) => Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: JarvisGlass(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title,
+                  style: const TextStyle(
+                      color: Color(0xFF32F5FF),
+                      letterSpacing: 1.3,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13)),
+              const SizedBox(height: 12),
+              child,
+            ],
+          ),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final policies = _snapshot?.policies ?? const <TabLockPolicy>[];
+    final devices = _snapshot?.devices ?? const <TabLockDevice>[];
+    return Scaffold(
+      backgroundColor: const Color(0xFF02050C),
+      appBar: AppBar(
+        title: const Text('TAB LOCK'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
+      body: _loading
+          ? const Center(
+              child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(color: Color(0xFF32F5FF)),
+                SizedBox(height: 16),
+                Text('CHROME EXTENSION REQUIRED',
+                    style: TextStyle(
+                        color: Color(0xFF32F5FF),
+                        fontSize: 12,
+                        letterSpacing: 1.2,
+                        fontWeight: FontWeight.w700)),
+                SizedBox(height: 8),
+                Text('Android cannot block Chrome pages by itself.',
+                    style: TextStyle(color: Colors.white54, fontSize: 10)),
+              ],
+            ))
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(14, 4, 14, 96),
+              children: [
+                _section(
+                  'CHROME EXTENSION REQUIRED',
+                  const Text(
+                    'Android cannot block Chrome pages by itself. Load the included MV3 extension in Chrome, pair it here, and keep the extension enabled. The server stores only policy metadata and hashed verifiers—not plaintext passwords.',
+                    style: TextStyle(
+                        color: Color(0xFFB3C8D5), height: 1.45, fontSize: 11),
+                  ),
+                ),
+                _section(
+                  'PAIR THIS CONTROLLER',
+                  Column(
+                    children: [
+                      TextField(
+                        controller: _deviceNameController,
+                        decoration: const InputDecoration(
+                            labelText: 'Android device name'),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _register,
+                            icon: const Icon(Icons.qr_code_2),
+                            label: const Text('REGISTER / SHOW CODE'),
+                          ),
+                        ),
+                      ]),
+                      if ((_local['pairingCode'] ?? '')
+                          .toString()
+                          .isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Text('ANDROID CONTROLLER CODE',
+                            style: TextStyle(
+                                color: Colors.white54,
+                                fontSize: 9,
+                                letterSpacing: 1.1)),
+                        SelectableText((_local['pairingCode'] ?? '').toString(),
+                            style: const TextStyle(
+                                color: Color(0xFFFF65B3),
+                                fontSize: 24,
+                                letterSpacing: 4,
+                                fontWeight: FontWeight.w800)),
+                      ],
+                      const Divider(height: 24),
+                      TextField(
+                        controller: _pairingController,
+                        keyboardType: TextInputType.number,
+                        maxLength: 8,
+                        decoration: const InputDecoration(
+                            labelText: 'Chrome extension pairing code'),
+                      ),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _pair,
+                          icon: const Icon(Icons.link),
+                          label: const Text('PAIR EXTENSION'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (devices.isNotEmpty)
+                  _section(
+                    'PAIRED DEVICES',
+                    Column(
+                      children: devices
+                          .map((device) => ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(
+                                    device.deviceType == 'chrome'
+                                        ? Icons.language
+                                        : Icons.phone_android,
+                                    color: const Color(0xFF32F5FF)),
+                                title: Text(device.deviceName,
+                                    style: const TextStyle(fontSize: 11)),
+                                subtitle: Text(
+                                    '${device.deviceType} • ${device.deviceId}',
+                                    style: const TextStyle(
+                                        fontSize: 9, color: Colors.white54)),
+                                trailing: device.deviceId == _local['deviceId']
+                                    ? const Text('THIS DEVICE',
+                                        style: TextStyle(
+                                            fontSize: 8,
+                                            color: Color(0xFF76FFB0)))
+                                    : IconButton(
+                                        onPressed: () =>
+                                            _revokeDevice(device.deviceId),
+                                        icon: const Icon(Icons.link_off,
+                                            color: Color(0xFFFF65B3))),
+                              ))
+                          .toList(),
+                    ),
+                  ),
+                _section(
+                  'NEW WEBSITE POLICY',
+                  Column(
+                    children: [
+                      TextField(
+                          controller: _domainController,
+                          decoration: const InputDecoration(
+                              labelText: 'Domain (example.com)',
+                              hintText: 'Subpaths are included automatically')),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        value: _mode,
+                        decoration:
+                            const InputDecoration(labelText: 'Access mode'),
+                        items: const [
+                          DropdownMenuItem(
+                              value: 'block', child: Text('Fully block')),
+                          DropdownMenuItem(
+                              value: 'lock',
+                              child: Text('Lock behind credential')),
+                        ],
+                        onChanged: (value) =>
+                            setState(() => _mode = value ?? 'block'),
+                      ),
+                      if (_mode == 'lock') ...[
+                        const SizedBox(height: 10),
+                        TextField(
+                            controller: _secretController,
+                            obscureText: true,
+                            decoration: const InputDecoration(
+                                labelText:
+                                    'Password / PIN / passphrase (4+ characters)')),
+                        const SizedBox(height: 5),
+                        const Text(
+                            'This release uses a client-generated verifier. Hardware WebAuthn passkeys are not claimed as supported yet.',
+                            style: TextStyle(
+                                color: Colors.white54,
+                                fontSize: 9,
+                                height: 1.35)),
+                      ],
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        value: _failurePage,
+                        decoration: const InputDecoration(
+                            labelText: 'Blocked-page appearance'),
+                        items: const [
+                          DropdownMenuItem(
+                              value: 'blocked', child: Text('JARVIS blocked')),
+                          DropdownMenuItem(
+                              value: 'not_found', child: Text('404 not found')),
+                          DropdownMenuItem(
+                              value: 'forbidden', child: Text('Forbidden')),
+                          DropdownMenuItem(
+                              value: 'aw_snap', child: Text('Aw, snap')),
+                        ],
+                        onChanged: (value) =>
+                            setState(() => _failurePage = value ?? 'blocked'),
+                      ),
+                      SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Relock when the page is refreshed',
+                              style: TextStyle(fontSize: 11)),
+                          value: _relockOnRefresh,
+                          onChanged: (value) =>
+                              setState(() => _relockOnRefresh = value)),
+                      SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                              onPressed: _savePolicy,
+                              icon: const Icon(Icons.add_moderator),
+                              label: const Text('SAVE POLICY'))),
+                    ],
+                  ),
+                ),
+                _section(
+                  'ACTIVE POLICIES',
+                  policies.isEmpty
+                      ? const Text('No policies yet. Add a domain above.',
+                          style: TextStyle(color: Colors.white54, fontSize: 11))
+                      : Column(
+                          children: policies
+                              .map((policy) => ListTile(
+                                    dense: true,
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: Icon(
+                                        policy.mode == 'lock'
+                                            ? Icons.lock
+                                            : Icons.block,
+                                        color: policy.mode == 'lock'
+                                            ? const Color(0xFFFF65B3)
+                                            : const Color(0xFFFFD166)),
+                                    title: Text(policy.domain,
+                                        style: const TextStyle(fontSize: 11)),
+                                    subtitle: Text(
+                                        '${policy.mode} • ${policy.relockOnRefresh ? 'relocks on refresh' : 'session unlock'}',
+                                        style: const TextStyle(
+                                            color: Colors.white54,
+                                            fontSize: 9)),
+                                    trailing: IconButton(
+                                        onPressed: () =>
+                                            _deletePolicy(policy.domain),
+                                        icon: const Icon(Icons.delete_outline,
+                                            color: Colors.white54)),
+                                  ))
+                              .toList()),
+                ),
+                if (_status.isNotEmpty)
+                  Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(_status,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                              color: Color(0xFF9FEFFF),
+                              fontSize: 10,
+                              height: 1.4))),
+              ],
+            ),
     );
   }
 }

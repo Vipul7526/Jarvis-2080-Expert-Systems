@@ -132,28 +132,86 @@ class SystemBridge(private val activity: Activity) : MethodChannel.MethodCallHan
     }
 
     private fun resolvePackage(appName: String): Map<String, Any?> {
-        val normalized = appName.trim().lowercase()
-        val mapping = mapOf(
-            "youtube" to "com.google.android.youtube",
-            "chrome" to "com.android.chrome",
-            "gmail" to "com.google.android.gm",
-            "maps" to "com.google.android.apps.maps",
-            "whatsapp" to "com.whatsapp",
-            "instagram" to "com.instagram.android",
-            "facebook" to "com.facebook.katana",
-            "spotify" to "com.spotify.music",
-            "telegram" to "org.telegram.messenger",
-            "discord" to "com.discord",
-            "netflix" to "com.netflix.mediaclient",
-            "amazon" to "com.amazon.mShop.android.shopping",
+        val query = normalizeAppQuery(appName)
+        if (query.isEmpty()) return mapOf("status" to "invalid", "appName" to appName)
+
+        val candidates = launcherApplications()
+            .asSequence()
+            .mapNotNull { resolveInfo ->
+                val appInfo = resolveInfo.activityInfo?.applicationInfo ?: return@mapNotNull null
+                val label = activity.packageManager.getApplicationLabel(appInfo).toString()
+                val packageName = appInfo.packageName
+                val score = appMatchScore(query, label, packageName)
+                if (score == 0) null else Triple(score, label, packageName)
+            }
+            .distinctBy { it.third }
+            .sortedByDescending { it.first }
+            .toList()
+
+        val best = candidates.firstOrNull()
+        if (best == null) {
+            val suggestions = launcherApplications()
+                .asSequence()
+                .map { info ->
+                    val appInfo = info.activityInfo.applicationInfo
+                    mapOf(
+                        "label" to activity.packageManager.getApplicationLabel(appInfo).toString(),
+                        "packageName" to appInfo.packageName,
+                    )
+                }
+                .distinctBy { it["packageName"] }
+                .filter { item ->
+                    val label = item["label"].toString().lowercase()
+                    val packageName = item["packageName"].toString().lowercase()
+                    label.contains(query) || packageName.contains(query)
+                }
+                .take(5)
+                .toList()
+            return mapOf(
+                "status" to "not_found",
+                "appName" to appName,
+                "suggestions" to suggestions,
+            )
+        }
+        return mapOf(
+            "status" to "installed",
+            "appName" to appName,
+            "label" to best.second,
+            "packageName" to best.third,
+            "matches" to candidates.take(5).map { mapOf("label" to it.second, "packageName" to it.third) },
         )
-        val packageName = mapping[normalized]
-        if (packageName == null) return mapOf("status" to "unknown", "appName" to appName)
-        val installed = try {
-            activity.packageManager.getApplicationInfo(packageName, 0)
-            true
-        } catch (_: PackageManager.NameNotFoundException) { false }
-        return mapOf("status" to if (installed) "installed" else "not_installed", "packageName" to packageName, "appName" to appName)
+    }
+
+    private fun launcherApplications(): List<android.content.pm.ResolveInfo> {
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            activity.packageManager.queryIntentActivities(
+                intent,
+                PackageManager.ResolveInfoFlags.of(0L),
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            activity.packageManager.queryIntentActivities(intent, 0)
+        }
+    }
+
+    private fun normalizeAppQuery(value: String): String = value
+        .trim()
+        .lowercase()
+        .replace(Regex("\\b(open|launch|app|application)\\b"), " ")
+        .replace(Regex("[^a-z0-9]+"), "")
+
+    private fun appMatchScore(query: String, label: String, packageName: String): Int {
+        val labelQuery = normalizeAppQuery(label)
+        val packageQuery = normalizeAppQuery(packageName)
+        return when {
+            labelQuery == query -> 100
+            packageQuery == query -> 98
+            labelQuery.startsWith(query) -> 90
+            labelQuery.contains(query) -> 80
+            packageQuery.contains(query) -> 70
+            else -> 0
+        }
     }
 
     private fun launchPackage(packageName: String): Map<String, Any?> {

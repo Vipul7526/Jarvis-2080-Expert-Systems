@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "JARVIS Tab Lock",
+  "version": "1.2.5",
+  "description": "A JARVIS-managed domain and subpath access policy extension.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "alarms",
+    "webNavigation",
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html",
+  "action": {
+    "default_title": "JARVIS Tab Lock",
+    "default_popup": "options.html"
+  },
+  "declarative_net_request": {
+    "rule_resources": []
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["pages/blocked.html", "pages/blocked.js", "pages/blocked.css"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JARVIS Tab Lock</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow">J.A.R.V.I.S. 2080</p>
+      <h1>Tab Lock</h1>
+      <p class="subtitle">Pair this browser with the Android app. Policies are managed in JARVIS and synced here.</p>
+    </header>
+    <section class="card">
+      <label for="apiBase">Policy server</label>
+      <input id="apiBase" value="https://jarvisrecov-3mlp5xq9.manus.space/api/tab-lock" autocomplete="url">
+      <label for="deviceName">This browser name</label>
+      <input id="deviceName" value="Chrome Browser" autocomplete="off">
+      <div class="actions">
+        <button id="register">Generate pairing code</button>
+        <button id="sync" class="secondary">Sync now</button>
+      </div>
+      <p id="status" class="status">Not paired</p>
+    </section>
+    <section id="pairing" class="card hidden">
+      <p class="eyebrow">Enter this in JARVIS → Tab Lock</p>
+      <div id="pairingCode" class="pairing-code">—</div>
+      <p id="expires" class="muted"></p>
+      <p class="muted">Do not share this code. It is single-use and expires automatically.</p>
+    </section>
+    <section class="card">
+      <div class="row"><h2>Current device</h2><span id="pairedState" class="pill">Not paired</span></div>
+      <dl id="deviceDetails" class="details"></dl>
+    </section>
+    <section class="card">
+      <div class="row"><h2>Synced rules</h2><span id="ruleCount" class="pill">0</span></div>
+      <div id="rules" class="rules"><p class="muted">No policies synced yet.</p></div>
+    </section>
+    <footer>JARVIS never receives plaintext site passwords. This extension stores only the verifier supplied by the paired controller.</footer>
+  </main>
+  <script src="options.js"></script>
+</body>
+</html>

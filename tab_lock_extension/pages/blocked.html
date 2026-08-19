@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JARVIS Tab Lock</title>
+  <link rel="stylesheet" href="blocked.css">
+</head>
+<body>
+  <main class="panel">
+    <div class="orb"><span></span></div>
+    <p class="eyebrow">J.A.R.V.I.S. // TAB LOCK</p>
+    <h1 id="title">Access controlled</h1>
+    <p id="domain" class="domain">—</p>
+    <p id="message" class="message">This website is controlled by a policy from your paired JARVIS device.</p>
+    <form id="unlockForm" class="hidden">
+      <label for="secret">Password, PIN, or passphrase</label>
+      <input id="secret" type="password" autocomplete="current-password" required>
+      <button type="submit">Unlock site</button>
+      <p id="error" class="error"></p>
+    </form>
+    <button id="options" class="secondary">Open JARVIS extension settings</button>
+    <p class="notice">If this policy is unexpected, use the paired Android JARVIS Tab Lock tab to review or revoke it.</p>
+  </main>
+  <script src="blocked.js"></script>
+</body>
+</html>

@@ -13,13 +13,14 @@ void main() {
     expect(find.text('J.A.R.V.I.S. 2080'), findsOneWidget);
   });
 
-  testWidgets('simulation dashboard is clearly marked as prank-only',
+  testWidgets('tab lock page explains the real extension boundary',
       (WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: HackingDashboardPage()));
+    await tester.pumpWidget(const MaterialApp(home: TabLockPage()));
     await tester.pump();
-    expect(find.text('SIMULATION DECK'), findsOneWidget);
-    expect(find.textContaining('PRANK MODE'), findsOneWidget);
-    expect(find.textContaining('does not hack'), findsOneWidget);
-    expect(find.byType(HackingDashboardPage), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('TAB LOCK'), findsOneWidget);
+    expect(find.text('CHROME EXTENSION REQUIRED'), findsOneWidget);
+    expect(find.textContaining('Android cannot block Chrome pages'),
+        findsOneWidget);
   });
 }

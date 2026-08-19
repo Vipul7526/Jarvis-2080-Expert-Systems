@@ -5,5 +5,6 @@ android/.gradle/
 android/app/build/
 android/app/*.keystore
 android/key.properties
+android/app/google-services.json
 .flutter-plugins
 .flutter-plugins-dependencies

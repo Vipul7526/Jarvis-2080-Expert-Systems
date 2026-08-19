@@ -29,3 +29,17 @@ JARVIS 2080 Pro v1.2.4 Release
 - Final verification: Flutter release compilation, Kotlin compilation, APK v2 signature verification, embedded Orbitron.ttf, FontManifest registration, package metadata, and widget tests completed.
 
 Copyright: © 2026 Prince Singh. All Rights Reserved.
+
+
+JARVIS 2080 Pro v1.2.5 Release
+
+- Removed the prior prank-only Hacking Dashboard; v1.2.5 contains no hacking dashboard or simulation navigation.
+- Refined the mobile-first holographic core, state indicators, and Tab Lock management flow, with Orbitron embedded in the signed APK.
+- Hardened natural-language app launching by resolving installed Android packages instead of relying on fixed aliases.
+- Added the **JARVIS Tab Lock** Chrome Manifest V3 extension. It enforces complete domain, subdomain, and path policies, offers block/credential-lock modes, supports re-lock on refresh, and pairs to the Android controller using an eight-digit one-time code.
+- The recovery server now encrypts Tab Lock salt/verifier bundles at rest with server-only AES-256-GCM. Chrome keeps verifier material only in session storage; it persists policy metadata and the browser device token, not the unlock verifier.
+- Security regressions cover AES-GCM envelope integrity, server key readiness, successful/failed local verifier checks, domain/subdomain/path matching, extension cache sanitization, and revocation/expiry sync refusal.
+- APK package: `com.ultimate.jarvis.pro`; version name: `1.2.5`; arm64-v8a; v2-signed. SHA-256: `f4d61861bb894eb1f87860b18442d13562ca87245fd8c820e00182e40d1feafa`.
+- The release includes `JARVIS-Tab-Lock-Chrome-Extension-v1.2.5.zip`. Extract it and load the `tab_lock_extension` folder through `chrome://extensions` → **Developer mode** → **Load unpacked**.
+
+Copyright: © 2026 Prince Singh. All Rights Reserved.

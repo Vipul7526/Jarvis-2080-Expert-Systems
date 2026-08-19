@@ -1,0 +1,1 @@
+ALTER TABLE `tab_lock_policies` ADD `unlockCredentialCiphertext` varchar(1024);
