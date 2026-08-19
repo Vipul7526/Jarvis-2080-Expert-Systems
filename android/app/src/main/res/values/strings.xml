@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_description">JARVIS uses accessibility access only when enabled by you to read visible screen context and perform approved assistant actions.</string>
+</resources>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="@color/jarvis_icon_background" android:pathData="M0,0h108v108h-108z" />
+    <path android:fillColor="@color/jarvis_neon_cyan" android:pathData="M18,54 C30,28 78,28 90,54 C78,80 30,80 18,54 Z" />
+    <path android:fillColor="@color/jarvis_icon_background" android:pathData="M24,54 C34,36 74,36 84,54 C74,72 34,72 24,54 Z" />
+    <path android:fillColor="@color/jarvis_neon_magenta" android:pathData="M54,42 A12,12 0,1 0,54 66 A12,12 0,1 0,54 42" />
+    <path android:fillColor="@color/jarvis_background" android:pathData="M54,48 A6,6 0,1 0,54 60 A6,6 0,1 0,54 48" />
+</vector>

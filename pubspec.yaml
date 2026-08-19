@@ -1,0 +1,32 @@
+name: jarvis_assistant
+description: JARVIS 2080 cyberpunk Android assistant.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.22.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  animate_do: ^4.2.0
+  file_picker: 8.3.7
+  glassmorphism: ^3.0.0
+  google_fonts: ^6.2.1
+  google_sign_in: ^6.2.2
+  http: ^1.6.0
+  path_provider: ^2.1.5
+  permission_handler: ^12.0.1
+  provider: ^6.1.2
+  shared_preferences: ^2.5.3
+  speech_to_text: ^6.6.2
+  url_launcher: ^6.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true

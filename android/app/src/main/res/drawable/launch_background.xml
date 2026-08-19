@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/jarvis_background" />
+    <item android:gravity="center">
+        <shape android:shape="oval">
+            <size android:width="96dp" android:height="96dp" />
+            <solid android:color="@color/jarvis_icon_background" />
+            <stroke android:width="2dp" android:color="@color/jarvis_neon_cyan" />
+        </shape>
+    </item>
+</layer-list>

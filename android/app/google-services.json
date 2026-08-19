@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "857994198808",
+    "project_id": "jarvis-2080-pro-505709",
+    "storage_bucket": "jarvis-2080-pro-505709.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:857994198808:android:37d8fb4010ac86b309686d",
+        "android_client_info": {
+          "package_name": "com.ultimate.jarvis.pro"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCorKx0cuuYI5OKxsI-0uNm_IHQhJNVnos"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

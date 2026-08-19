@@ -1,0 +1,70 @@
+plugins {
+    id "com.android.application"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+apply plugin: "org.jetbrains.kotlin.android"
+
+import java.util.Properties
+import java.io.FileInputStream
+
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+android {
+    namespace = "com.ultimate.jarvis.pro"
+    compileSdk = 36
+    ndkVersion = "28.2.13676358"
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = "1.8"
+        freeCompilerArgs += ["-Xskip-metadata-version-check"]
+    }
+
+    signingConfigs {
+        release {
+            if (!keystorePropertiesFile.exists()) {
+                throw new GradleException('Missing android/key.properties; release signing cannot proceed safely.')
+            }
+            storeFile file(keystoreProperties['storeFile'])
+            storePassword keystoreProperties['storePassword']
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
+        }
+    }
+
+    defaultConfig {
+        applicationId = "com.ultimate.jarvis.pro"
+        minSdk = 24
+        ndk {
+            abiFilters "arm64-v8a"
+        }
+        targetSdk = 34
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.release
+            minifyEnabled false
+            shrinkResources false
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.biometric:biometric:1.1.0'
+}
+
+flutter {
+    source = "../.."
+}
