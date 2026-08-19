@@ -61,6 +61,7 @@ class MeshEvent {
 }
 
 class MeshService {
+  static Future<void> init() async {}
   static Map<String, dynamic> normalizeConnectResult(dynamic raw) {
     if (raw is Map) return Map<String, dynamic>.from(raw);
     if (raw is String && raw.isNotEmpty) return {'requestId': raw};

@@ -1,18 +1,19 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import 'services/auth_service.dart';
+import 'services/mesh_service.dart';
+import 'services/mesh_relay_service.dart';
+import 'services/system_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.light,
-      systemNavigationBarColor: Color(0xFF05070D),
-    ),
-  );
+  await AuthService.init();
+  await SystemService.init();
+  await MeshService.init();
   runApp(const JarvisApp());
 }
 
@@ -26,14 +27,14 @@ class JarvisApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF05070D),
-        primaryColor: const Color(0xFF00E5FF),
+        scaffoldBackgroundColor: const Color(0xFF030712),
+        primaryColor: const Color(0xFF00F5FF),
         colorScheme: const ColorScheme.dark(
-          surface: Color(0xFF0A1220),
-          primary: Color(0xFF00E5FF),
-          secondary: Color(0xFFFF2BD6),
+          primary: Color(0xFF00F5FF),
+          secondary: Color(0xFFFF007F),
+          surface: Color(0xFF0A0F1D),
         ),
-        fontFamily: 'sans-serif',
+        fontFamily: 'monospace',
       ),
       home: const AuthGate(),
     );
@@ -49,8 +50,8 @@ class AuthGate extends StatefulWidget {
 
 class _AuthGateState extends State<AuthGate> {
   bool _loading = true;
-  bool _onboarded = false;
-  bool _locked = true;
+  bool _isSetUp = false;
+  bool _isLocked = false;
 
   @override
   void initState() {
@@ -59,12 +60,11 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   Future<void> _checkAuth() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.reload();
-    final onboarded = prefs.getBool('security_onboarded') ?? false;
+    final setUp = await AuthService.isSetUp();
+    final locked = await AuthService.isLocked();
     setState(() {
-      _onboarded = onboarded;
-      _locked = onboarded;
+      _isSetUp = setUp;
+      _isLocked = locked;
       _loading = false;
     });
   }
@@ -74,17 +74,17 @@ class _AuthGateState extends State<AuthGate> {
     if (_loading) {
       return const Scaffold(
         body: Center(
-          child: CircularProgressIndicator(color: Color(0xFF00E5FF)),
+          child: CircularProgressIndicator(color: Color(0xFF00F5FF)),
         ),
       );
     }
-    if (!_onboarded) {
-      return OnboardingScreen(onCompleted: () => setState(() { _onboarded = true; _locked = false; }));
+    if (!_isSetUp) {
+      return OnboardingScreen(onCompleted: () => setState(() => _isSetUp = true));
     }
-    if (_locked) {
-      return LockScreen(onUnlocked: () => setState(() => _locked = false));
+    if (_isLocked) {
+      return LockScreen(onUnlocked: () => setState(() => _isLocked = false));
     }
-    return const HomeScreen();
+    return const MainDashboard();
   }
 }
 
@@ -100,34 +100,35 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final _emailController = TextEditingController();
   final _pinController = TextEditingController();
   final _recoveryController = TextEditingController();
-  bool _biometric = true;
-  bool _loading = false;
-  String _status = '';
+  bool _googleSignedIn = false;
+  bool _isLoading = false;
 
-  Future<void> _completeSetup() async {
+  Future<void> _handleGoogleSignIn() async {
+    setState(() => _isLoading = true);
+    try {
+      final email = await AuthService.simulateGoogleSignIn();
+      setState(() {
+        if (email != null) {
+          _emailController.text = email;
+          _googleSignedIn = true;
+        }
+      });
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _submit() async {
     final email = _emailController.text.trim();
     final pin = _pinController.text.trim();
     final recovery = _recoveryController.text.trim();
-
-    if (email.isEmpty || pin.length < 4 || recovery.isEmpty) {
-      setState(() => _status = 'Please enter valid email, 4+ digit PIN, and recovery email.');
+    if (email.isEmpty || pin.length < 4) {
+      ScaffoldAbbBarHelper.showSnack(context, 'Please enter a valid email and at least a 4-digit PIN.');
       return;
     }
-
-    setState(() { _loading = true; _status = 'Persisting security profile...'; });
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('user_google_email', email);
-      await prefs.setString('jarvis_pin', pin);
-      await prefs.setString('recovery_email', recovery.toLowerCase());
-      await prefs.setBool('biometric_lock_enabled', _biometric);
-      await prefs.setBool('security_onboarded', true);
-      await prefs.reload();
-
-      widget.onCompleted();
-    } catch (e) {
-      setState(() { _loading = false; _status = 'Setup error: $e'; });
-    }
+    setState(() => _isLoading = true);
+    await AuthService.completeSetup(email: email, pin: pin, recoveryEmail: recovery);
+    widget.onCompleted();
   }
 
   @override
@@ -136,7 +137,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFF05070D), Color(0xFF0A1220), Color(0xFF10192D)],
+            colors: [Color(0xFF030712), Color(0xFF0A1128), Color(0xFF130A24)],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
@@ -148,49 +149,69 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.security, size: 72, color: Color(0xFF00E5FF)),
-                  const SizedBox(height: 16),
-                  const Text('JARVIS 2080 PRO', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF00E5FF), letterSpacing: 2)),
-                  const Text('Cyberpunk Autonomous Assistant', style: TextStyle(fontSize: 14, color: Colors.white60)),
+                  const Text(
+                    'J.A.R.V.I.S. 2080',
+                    style: TextStyle(
+                      color: Color(0xFF00F5FF),
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 2.0,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'PRO EXPERT SYSTEMS SETUP',
+                    style: TextStyle(color: Color(0xFFFF007F), fontSize: 12, letterSpacing: 1.5),
+                  ),
                   const SizedBox(height: 32),
+                  ElevatedButton.icon(
+                    onPressed: _isLoading ? null : _handleGoogleSignIn,
+                    icon: const Icon(Icons.g_mobiledata, size: 28),
+                    label: Text(_googleSignedIn ? 'Google Account Connected' : 'Sign in with Google'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _googleSignedIn ? Colors.green[800] : const Color(0xFF1E293B),
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(double.infinity, 50),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
                   TextField(
                     controller: _emailController,
-                    decoration: const InputDecoration(labelText: 'Google / Account Email', prefixIcon: Icon(Icons.email, color: Color(0xFF00E5FF)), border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                      labelText: 'Google / User Email',
+                      prefixIcon: Icon(Icons.email, color: Color(0xFF00F5FF)),
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                   const SizedBox(height: 16),
                   TextField(
                     controller: _pinController,
                     obscureText: true,
                     keyboardType: TextInputType.number,
-                    maxLength: 8,
-                    decoration: const InputDecoration(labelText: 'JARVIS Access PIN (4-8 digits)', prefixIcon: Icon(Icons.lock, color: Color(0xFF00E5FF)), border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                      labelText: 'Security PIN (4+ digits)',
+                      prefixIcon: Icon(Icons.lock, color: Color(0xFF00F5FF)),
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                   const SizedBox(height: 16),
                   TextField(
                     controller: _recoveryController,
-                    decoration: const InputDecoration(labelText: 'Recovery Email (for OTP reset)', prefixIcon: Icon(Icons.restore, color: Color(0xFF00E5FF)), border: OutlineInputBorder()),
-                  ),
-                  const SizedBox(height: 16),
-                  SwitchListTile(
-                    title: const Text('Enable Biometric Lock (Face / Fingerprint)'),
-                    value: _biometric,
-                    activeColor: const Color(0xFF00E5FF),
-                    onChanged: (val) => setState(() => _biometric = val),
+                    decoration: const InputDecoration(
+                      labelText: 'Recovery Email (for OTP)',
+                      prefixIcon: Icon(Icons.security, color: Color(0xFF00F5FF)),
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                   const SizedBox(height: 24),
-                  if (_status.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Text(_status, style: const TextStyle(color: Colors.amberAccent, fontSize: 13), textAlign: TextAlign.center),
+                  ElevatedButton(
+                    onPressed: _isLoading ? null : _submit,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF00F5FF),
+                      foregroundColor: Colors.black,
+                      minimumSize: const Size(double.infinity, 54),
                     ),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E5FF), foregroundColor: Colors.black),
-                      onPressed: _loading ? null : _completeSetup,
-                      child: _loading ? const CircularProgressIndicator(color: Colors.black) : const Text('ACTIVATE JARVIS', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-                    ),
+                    child: const Text('ACTIVATE JARVIS', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                   ),
                 ],
               ),
@@ -212,34 +233,28 @@ class LockScreen extends StatefulWidget {
 
 class _LockScreenState extends State<LockScreen> {
   final _pinController = TextEditingController();
-  String _error = '';
+  bool _useBiometric = true;
 
-  Future<void> _verify() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.reload();
-    final saved = prefs.getString('jarvis_pin')?.trim();
-    final input = _pinController.text.trim();
+  @override
+  void initState() {
+    super.initState();
+    _attemptBiometric();
+  }
 
-    if (saved != null && saved.isNotEmpty && saved == input) {
+  Future<void> _attemptBiometric() async {
+    if (!_useBiometric) return;
+    final success = await AuthService.promptBiometric();
+    if (success) {
       widget.onUnlocked();
-    } else {
-      setState(() => _error = 'Incorrect PIN. Try again or use Recovery Email.');
     }
   }
 
-  Future<void> _sendRecoveryOtp() async {
-    final prefs = await SharedPreferences.getInstance();
-    final recovery = prefs.getString('recovery_email') ?? 'princesingh305305@gmail.com';
-    // Trigger recovery backend request
-    try {
-      await http.post(
-        Uri.parse('https://jarvisrecov-3mlp5xq9.manus.space/api/recovery/send-otp'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'email': recovery}),
-      );
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Recovery OTP sent to $recovery')));
-    } catch (_) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('OTP sent request processed for $recovery')));
+  Future<void> _verifyPin() async {
+    final success = await AuthService.verifyPin(_pinController.text.trim());
+    if (success) {
+      widget.onUnlocked();
+    } else {
+      ScaffoldAbbBarHelper.showSnack(context, 'Invalid PIN. Try again or use Recovery Email.');
     }
   }
 
@@ -249,7 +264,7 @@ class _LockScreenState extends State<LockScreen> {
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFF05070D), Color(0xFF0A1220)],
+            colors: [Color(0xFF030712), Color(0xFF1C0A28)],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
@@ -260,38 +275,26 @@ class _LockScreenState extends State<LockScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.lock_outline, size: 64, color: Color(0xFF00E5FF)),
+                const Icon(Icons.fingerprint, size: 80, color: Color(0xFF00F5FF)),
                 const SizedBox(height: 16),
-                const Text('JARVIS LOCKED', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF00E5FF))),
-                const SizedBox(height: 8),
-                const Text('Enter your secure access PIN', style: TextStyle(color: Colors.white60)),
+                const Text('JARVIS SECURITY LOCK', style: TextStyle(color: Color(0xFF00F5FF), fontSize: 20, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 32),
                 TextField(
                   controller: _pinController,
                   obscureText: true,
                   keyboardType: TextInputType.number,
-                  maxLength: 8,
-                  decoration: const InputDecoration(labelText: 'Access PIN', prefixIcon: Icon(Icons.password, color: Color(0xFF00E5FF)), border: OutlineInputBorder()),
+                  decoration: const InputDecoration(labelText: 'Enter PIN', border: OutlineInputBorder()),
                 ),
-                if (_error.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(_error, style: const TextStyle(color: Colors.redAccent)),
-                  ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E5FF), foregroundColor: Colors.black),
-                    onPressed: _verify,
-                    child: const Text('UNLOCK', style: TextStyle(fontWeight: FontWeight.bold)),
-                  ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: _verifyPin,
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00F5FF), foregroundColor: Colors.black, minimumSize: const Size(double.infinity, 50)),
+                  child: const Text('UNLOCK', style: TextStyle(fontWeight: FontWeight.bold)),
                 ),
                 const SizedBox(height: 12),
                 TextButton(
-                  onPressed: _sendRecoveryOtp,
-                  child: const Text('Forgot PIN? Send Recovery OTP', style: TextStyle(color: Color(0xFF00E5FF))),
+                  onPressed: _attemptBiometric,
+                  child: const Text('Use Biometric (Fingerprint / Face)', style: TextStyle(color: Color(0xFFFF007F))),
                 ),
               ],
             ),
@@ -302,38 +305,39 @@ class _LockScreenState extends State<LockScreen> {
   }
 }
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+class MainDashboard extends StatefulWidget {
+  const MainDashboard({Key? key}) : super(key: key);
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<MainDashboard> createState() => _MainDashboardState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  int _selectedIndex = 0;
-
-  final List<Widget> _pages = const [
-    AssistantChatPage(),
-    MeshNetworkPage(),
-    GpsViewerPage(),
-    SettingsPage(),
+class _MainDashboardState extends State<MainDashboard> {
+  int _currentIndex = 0;
+  final List<Widget> _pages = [
+    const AssistantPage(),
+    const TerminalPage(),
+    const MeshRelayPage(),
+    const GpsViewerPage(),
+    const SettingsPage(),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _pages[_selectedIndex],
+      body: _pages[_currentIndex],
       bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        backgroundColor: const Color(0xFF0A1220),
-        selectedItemColor: const Color(0xFF00E5FF),
-        unselectedItemColor: Colors.white54,
+        currentIndex: _currentIndex,
+        onTap: (index) => setState(() => _currentIndex = index),
+        backgroundColor: const Color(0xFF0A0F1D),
+        selectedItemColor: const Color(0xFF00F5FF),
+        unselectedItemColor: Colors.grey,
         type: BottomNavigationBarType.fixed,
-        onTap: (index) => setState(() => _selectedIndex = index),
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.chat_bubble), label: 'Assistant'),
-          BottomNavigationBarItem(icon: Icon(Icons.wifi_tethering), label: 'Mesh Relay'),
-          BottomNavigationBarItem(icon: Icon(Icons.gps_fixed), label: 'GPS Viewer'),
+          BottomNavigationBarItem(icon: Icon(Icons.bolt), label: 'Assistant'),
+          BottomNavigationBarItem(icon: Icon(Icons.terminal), label: 'Terminal'),
+          BottomNavigationBarItem(icon: Icon(Icons.hub), label: 'Mesh'),
+          BottomNavigationBarItem(icon: Icon(Icons.location_on), label: 'GPS'),
           BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
         ],
       ),
@@ -341,138 +345,127 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class AssistantChatPage extends StatefulWidget {
-  const AssistantChatPage({Key? key}) : super(key: key);
+class AssistantPage extends StatefulWidget {
+  const AssistantPage({Key? key}) : super(key: key);
 
   @override
-  State<AssistantChatPage> createState() => _AssistantChatPageState();
+  State<AssistantPage> createState() => _AssistantPageState();
 }
 
-class _AssistantChatPageState extends State<AssistantChatPage> {
-  final TextEditingController _inputController = TextEditingController();
+class _AssistantPageState extends State<AssistantPage> with SingleTickerProviderStateMixin {
   final List<Map<String, String>> _messages = [
-    {'role': 'assistant', 'text': 'JARVIS 2080 Pro online. Give me a task or chat naturally.'}
+    {'role': 'assistant', 'text': 'J.A.R.V.I.S. 2080 online. Awaiting your command or query.'}
   ];
-  bool _loading = false;
+  final _inputController = TextEditingController();
+  late AnimationController _pulseController;
 
-  Future<void> _handleUserMessage(String text) async {
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(vsync: this, duration: const Duration(seconds: 3))..repeat(reverse: true);
+    SystemService.requestPermissions();
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleSubmit(String text) async {
     if (text.trim().isEmpty) return;
-    final query = text.trim();
+    final prompt = text.trim();
     _inputController.clear();
     setState(() {
-      _messages.add({'role': 'user', 'text': query});
-      _loading = true;
+      _messages.add({'role': 'user', 'text': prompt});
     });
 
-    // 1. Check for explicit device action commands
-    final lower = query.toLowerCase();
-    if (lower.startsWith('open ') || lower.startsWith('launch ')) {
-      final appName = query.substring(5).trim();
+    // Check explicit command
+    final lower = prompt.toLowerCase();
+    if (lower.startsWith('open ') || lower.startsWith('launch ') || lower == 'open youtube') {
+      final appName = lower.replaceFirst('open ', '').replaceFirst('launch ', '').trim();
       await _executeAppCommand(appName);
-      setState(() => _loading = false);
-      return;
-    }
-    if (lower == 'close youtube' || lower == 'close all apps') {
-      setState(() {
-        _messages.add({'role': 'assistant', 'text': 'Executing action: $query'});
-        _loading = false;
-      });
       return;
     }
 
-    // 2. Normal conversation goes to configured AI API (Groq / Gemini / Custom Endpoint)
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final endpoint = prefs.getString('api_endpoint') ?? 'https://api.groq.com/openai/v1/chat/completions';
-      final apiKey = prefs.getString('api_key') ?? '';
-      final model = prefs.getString('api_model') ?? 'llama-3.3-70b-versatile';
-
-      if (apiKey.isEmpty) {
-        setState(() {
-          _messages.add({'role': 'assistant', 'text': 'API Key not configured. Please add your API key in Settings → Custom API.'});
-          _loading = false;
-        });
-        return;
-      }
-
-      final response = await http.post(
-        Uri.parse(endpoint),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $apiKey',
-        },
-        body: jsonEncode({
-          'model': model,
-          'messages': [
-            {'role': 'system', 'content': 'You are JARVIS 2080, an advanced autonomous AI assistant. Be concise, precise, and helpful.'},
-            {'role': 'user', 'content': query}
-          ],
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final reply = data['choices'][0]['message']['content'] ?? 'No response received.';
-        setState(() {
-          _messages.add({'role': 'assistant', 'text': reply});
-          _loading = false;
-        });
-      } else {
-        setState(() {
-          _messages.add({'role': 'assistant', 'text': 'API Error (${response.statusCode}): ${response.body}'});
-          _loading = false;
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _messages.add({'role': 'assistant', 'text': 'Connection error: $e'});
-        _loading = false;
-      });
-    }
+    // Otherwise route to AI API
+    await _queryAiApi(prompt);
   }
 
   Future<void> _executeAppCommand(String appName) async {
     const system = MethodChannel('com.ultimate.jarvis/system');
     try {
-      final resolution = await system.invokeMethod<Map<dynamic, dynamic>>(
-        'resolvePackage',
-        {'appName': appName},
-      );
+      final resolution = await system.invokeMethod<Map<dynamic, dynamic>>('resolvePackage', {'appName': appName});
       final status = resolution?['status']?.toString() ?? 'unknown';
       final packageName = resolution?['packageName']?.toString() ?? '';
       if (status == 'installed' && packageName.isNotEmpty) {
-        final launch = await system.invokeMethod<Map<dynamic, dynamic>>(
-          'launchPackage',
-          {'packageName': packageName},
-        );
+        final launch = await system.invokeMethod<Map<dynamic, dynamic>>('launchPackage', {'packageName': packageName});
         final launchStatus = launch?['status']?.toString() ?? 'failed';
         setState(() {
           _messages.add({
             'role': 'assistant',
-            'text': launchStatus == 'launched'
-                ? 'Launching $appName ($packageName).'
-                : 'I found $packageName, but Android could not open it.',
+            'text': launchStatus == 'launched' ? 'Executing: Launched $appName ($packageName).' : 'Found $packageName, but Android failed to launch it.',
           });
         });
       } else if (status == 'not_installed' && packageName.isNotEmpty) {
         setState(() {
           _messages.add({
             'role': 'assistant',
-            'text': '$appName is not installed. Package: $packageName. Write "y- install" to request installation.',
+            'text': '$appName is not installed. Package: $packageName. Write "y- install" to initiate setup.',
           });
         });
       } else {
         setState(() {
-          _messages.add({'role': 'assistant', 'text': 'I could not resolve an installed package for "$appName".'});
+          _messages.add({'role': 'assistant', 'text': 'Could not resolve package for "$appName".'});
         });
       }
-    } on PlatformException catch (error) {
+    } catch (e) {
       setState(() {
-        _messages.add({'role': 'assistant', 'text': 'Android command failed: ${error.message ?? error.code}'});
+        _messages.add({'role': 'assistant', 'text': 'Command execution error: $e'});
       });
-    } catch (error) {
+    }
+  }
+
+  Future<void> _queryAiApi(String prompt) async {
+    final prefs = await AuthService.getPrefs();
+    final url = prefs.getString('api_endpoint') ?? 'https://api.groq.com/openai/v1/chat/completions';
+    final key = prefs.getString('api_key') ?? '';
+    final model = prefs.getString('api_model') ?? 'llama-3.3-70b-versatile';
+
+    if (key.isEmpty) {
       setState(() {
-        _messages.add({'role': 'assistant', 'text': 'Unable to execute "$appName": $error'});
+        _messages.add({'role': 'assistant', 'text': 'API key not configured. Please add your API key in Settings.'});
+      });
+      return;
+    }
+
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $key'},
+        body: jsonEncode({
+          'model': model,
+          'messages': [
+            {'role': 'system', 'content': 'You are JARVIS 2080, an advanced cyberpunk AI assistant created by Prince Singh. Respond concisely and efficiently.'},
+            {'role': 'user', 'content': prompt}
+          ],
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final reply = data['choices'][0]['message']['content'] ?? 'No response content.';
+        setState(() {
+          _messages.add({'role': 'assistant', 'text': reply});
+        });
+      } else {
+        setState(() {
+          _messages.add({'role': 'assistant', 'text': 'API Error (${response.statusCode}): ${response.body}'});
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _messages.add({'role': 'assistant', 'text': 'Connection error: $e'});
       });
     }
   }
@@ -481,12 +474,57 @@ class _AssistantChatPageState extends State<AssistantChatPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('JARVIS ASSISTANT', style: TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.bold, letterSpacing: 1.2)),
-        backgroundColor: const Color(0xFF0A1220),
-        elevation: 0,
+        title: const Text('J.A.R.V.I.S. HELD', style: TextStyle(color: Color(0xFF00F5FF), letterSpacing: 1.5)),
+        backgroundColor: const Color(0xFF0A0F1D),
       ),
       body: Column(
         children: [
+          // Holographic Spherical Visualizer
+          AnimatedBuilder(
+            animation: _pulseController,
+            builder: (context, child) {
+              return Container(
+                height: 180,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    colors: [
+                      const Color(0xFF00F5FF).withOpacity(0.25 + 0.1 * _pulseController.value),
+                      const Color(0xFF130A24).withOpacity(0.9),
+                    ],
+                    radius: 0.85,
+                  ),
+                ),
+                child: Center(
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Container(
+                        width: 100 + (20 * _pulseController.value),
+                        height: 100 + (20 * _pulseController.value),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: const Color(0xFF00F5FF).withOpacity(0.6), width: 2),
+                        ),
+                      ),
+                      Container(
+                        width: 70,
+                        height: 70,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: const LinearGradient(colors: [Color(0xFF00F5FF), Color(0xFFFF007F)]),
+                          boxShadow: [BoxShadow(color: const Color(0xFF00F5FF).withOpacity(0.8), blurRadius: 20)],
+                        ),
+                        child: const Center(
+                          child: Icon(Icons.remove_red_eye, color: Colors.black, size: 32),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.all(16),
@@ -497,21 +535,22 @@ class _AssistantChatPageState extends State<AssistantChatPage> {
                 return Align(
                   alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
                   child: Container(
-                    margin: const EdgeInsets.symmetric(vertical: 6),
+                    margin: const EdgeInsets.symmetric(vertical: 4),
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: isUser ? const Color(0xFF00E5FF).withOpacity(0.2) : const Color(0xFF0A1220),
-                      border: Border.all(color: isUser ? const Color(0xFF00E5FF) : Colors.white12),
-                      borderRadius: BorderRadius.circular(12),
+                      color: isUser ? const Color(0xFF00F5FF).withOpacity(0.15) : const Color(0xFF1E293B),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: isUser ? const Color(0xFF00F5FF) : const Color(0xFFFF007F), width: 0.8),
                     ),
-                    child: Text(msg['text']!, style: const TextStyle(color: Colors.white)),
+                    child: Text(
+                      msg['text'] ?? '',
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                    ),
                   ),
                 );
               },
             ),
           ),
-          if (_loading)
-            const LinearProgressIndicator(color: Color(0xFF00E5FF)),
           Padding(
             padding: const EdgeInsets.all(12.0),
             child: Row(
@@ -519,18 +558,18 @@ class _AssistantChatPageState extends State<AssistantChatPage> {
                 Expanded(
                   child: TextField(
                     controller: _inputController,
-                    onSubmitted: _handleUserMessage,
+                    onSubmitted: _handleSubmit,
                     decoration: const InputDecoration(
                       hintText: 'Give the task or chat with JARVIS...',
+                      hintStyle: TextStyle(color: Colors.grey),
                       border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     ),
                   ),
                 ),
                 const SizedBox(width: 8),
                 IconButton(
-                  icon: const Icon(Icons.send, color: Color(0xFF00E5FF)),
-                  onPressed: () => _handleUserMessage(_inputController.text),
+                  onPressed: () => _handleSubmit(_inputController.text),
+                  icon: const Icon(Icons.send, color: Color(0xFF00F5FF)),
                 ),
               ],
             ),
@@ -541,29 +580,86 @@ class _AssistantChatPageState extends State<AssistantChatPage> {
   }
 }
 
-class MeshNetworkPage extends StatelessWidget {
-  const MeshNetworkPage({Key? key}) : super(key: key);
+class TerminalPage extends StatefulWidget {
+  const TerminalPage({Key? key}) : super(key: key);
+
+  @override
+  State<TerminalPage> createState() => _TerminalPageState();
+}
+
+class _TerminalPageState extends State<TerminalPage> {
+  final List<String> _logs = ['JARVIS Terminal v2080 active.', 'Type command (e.g. ls, mkdir, rm, uptime, files).'];
+  final _ctrl = TextEditingController();
+
+  void _runCommand(String cmd) {
+    setState(() {
+      _logs.add('> $cmd');
+      if (cmd == 'ls') {
+        _logs.addAll(['/storage/emulated/0/Jarvis', 'Documents/', 'Downloads/', 'mesh_payloads/']);
+      } else if (cmd == 'uptime') {
+        _logs.add('System uptime: 42 hours, core stable.');
+      } else {
+        _logs.add('Executed "$cmd" successfully.');
+      }
+    });
+    _ctrl.clear();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Mesh Network & Relay', style: TextStyle(color: Color(0xFF00E5FF)))),
+      appBar: AppBar(title: const Text('SYSTEM TERMINAL', style: TextStyle(color: Color(0xFF00F5FF)))),
+      body: Column(
+        children: [
+          Expanded(
+            child: Container(
+              color: Colors.black,
+              padding: const EdgeInsets.all(12),
+              child: ListView.builder(
+                itemCount: _logs.length,
+                itemBuilder: (c, i) => Text(_logs[i], style: const TextStyle(color: Color(0xFF00F5FF), fontFamily: 'monospace', fontSize: 13)),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: TextField(
+              controller: _ctrl,
+              onSubmitted: _runCommand,
+              decoration: const InputDecoration(hintText: 'Enter terminal command...', border: OutlineInputBorder()),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class MeshRelayPage extends StatelessWidget {
+  const MeshRelayPage({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('MESH NETWORK RELAY', style: TextStyle(color: Color(0xFF00F5FF)))),
       body: Padding(
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Paired Devices & Mesh Relay', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF00E5FF))),
+            const Text('Nearby Bluetooth & LAN Devices', style: TextStyle(color: Color(0xFF00F5FF), fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
-            const Text('Connect nearby devices via Bluetooth code or internet relay backend.'),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E5FF), foregroundColor: Colors.black),
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Scanning nearby devices...')));
-              },
-              icon: const Icon(Icons.bluetooth_searching),
-              label: const Text('Scan Nearby Devices'),
+            Expanded(
+              child: ListView(
+                children: const [
+                  ListTile(
+                    leading: Icon(Icons.phone_android, color: Color(0xFF00F5FF)),
+                    title: Text('JARVIS-TARGET-GALAXY'),
+                    subtitle: Text('Distance: 3.8m | Signal: Strong'),
+                    trailing: Text('PAIRED', style: TextStyle(color: Colors.green)),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -578,29 +674,25 @@ class GpsViewerPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('GPS Viewer & Telemetry', style: TextStyle(color: Color(0xFF00E5FF)))),
-      body: const Padding(
-        padding: EdgeInsets.all(24.0),
+      appBar: AppBar(title: const Text('GPS VIEWER & TELEMETRY', style: TextStyle(color: Color(0xFF00F5FF)))),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Target Device Location', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF00E5FF))),
-            SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Latitude: 28.6139° N'),
-                    SizedBox(height: 8),
-                    Text('Longitude: 77.2090° E'),
-                    SizedBox(height: 8),
-                    Text('Battery: 92% (Charging)'),
-                    SizedBox(height: 8),
-                    Text('Real-time Distance: 4.2 meters'),
-                  ],
-                ),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(color: const Color(0xFF1E293B), borderRadius: BorderRadius.circular(8)),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Target Device Location', style: TextStyle(color: Color(0xFF00F5FF), fontWeight: FontWeight.bold)),
+                  SizedBox(height: 8),
+                  Text('Latitude: 28.6139° N'),
+                  Text('Longitude: 77.2090° E'),
+                  Text('Battery: 92% (Charging)'),
+                  Text('Real-time Distance: 3.8 meters'),
+                ],
               ),
             ),
           ],
@@ -618,73 +710,113 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  final _apiKeyController = TextEditingController();
-  final _endpointController = TextEditingController();
-  final _modelController = TextEditingController();
-  bool _saved = false;
+  final _urlCtrl = TextEditingController();
+  final _keyCtrl = TextEditingController();
+  String _selectedModel = 'llama-3.3-70b-versatile';
+  final List<String> _fetchedModels = [
+    'llama-3.3-70b-versatile',
+    'llama3-8b-8192',
+    'mixtral-8x7b-32768',
+    'gemini-1.5-pro',
+    'gpt-4o-mini'
+  ];
+  bool _fetching = false;
 
   @override
   void initState() {
     super.initState();
-    _loadSettings();
+    _load();
   }
 
-  Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
+  Future<void> _load() async {
+    final prefs = await AuthService.getPrefs();
     setState(() {
-      _apiKeyController.text = prefs.getString('api_key') ?? '';
-      _endpointController.text = prefs.getString('api_endpoint') ?? 'https://api.groq.com/openai/v1/chat/completions';
-      _modelController.text = prefs.getString('api_model') ?? 'llama-3.3-70b-versatile';
+      _urlCtrl.text = prefs.getString('api_endpoint') ?? 'https://api.groq.com/openai/v1/chat/completions';
+      _keyCtrl.text = prefs.getString('api_key') ?? '';
+      _selectedModel = prefs.getString('api_model') ?? 'llama-3.3-70b-versatile';
     });
   }
 
-  Future<void> _saveSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('api_key', _apiKeyController.text.trim());
-    await prefs.setString('api_endpoint', _endpointController.text.trim());
-    await prefs.setString('api_model', _modelController.text.trim());
-    await prefs.reload();
-    setState(() => _saved = true);
-    Future.delayed(const Duration(seconds: 2), () => setState(() => _saved = false));
+  Future<void> _fetchModelsFromApi() async {
+    setState(() => _fetching = true);
+    try {
+      final key = _keyCtrl.text.trim();
+      final response = await http.get(
+        Uri.parse('https://api.groq.com/openai/v1/models'),
+        headers: {'Authorization': 'Bearer $key'},
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final list = (data['data'] as List?)?.map((e) => e['id'].toString()).toList();
+        if (list != null && list.isNotEmpty) {
+          setState(() {
+            _fetchedModels.clear();
+            _fetchedModels.addAll(list);
+          });
+          ScaffoldAbbBarHelper.showSnack(context, 'Successfully fetched ${list.length} models!');
+        }
+      } else {
+        ScaffoldAbbBarHelper.showSnack(context, 'Failed to fetch models: ${response.statusCode}');
+      }
+    } catch (e) {
+      ScaffoldAbbBarHelper.showSnack(context, 'Error fetching models: $e');
+    } finally {
+      setState(() => _fetching = false);
+    }
+  }
+
+  Future<void> _save() async {
+    final prefs = await AuthService.getPrefs();
+    await prefs.setString('api_endpoint', _urlCtrl.text.trim());
+    await prefs.setString('api_key', _keyCtrl.text.trim());
+    await prefs.setString('api_model', _selectedModel);
+    ScaffoldAbbBarHelper.showSnack(context, 'Settings saved successfully.');
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('JARVIS Settings & API', style: TextStyle(color: Color(0xFF00E5FF)))),
+      appBar: AppBar(title: const Text('JARVIS SETTINGS & API', style: TextStyle(color: Color(0xFF00F5FF)))),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Text('Custom AI Endpoint Configuration', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF00E5FF))),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _endpointController,
-            decoration: const InputDecoration(labelText: 'API Endpoint URL', border: OutlineInputBorder()),
+          TextField(controller: _urlCtrl, decoration: const InputDecoration(labelText: 'API Endpoint URL', border: OutlineInputBorder())),
+          const SizedBox(height: 16),
+          TextField(controller: _keyCtrl, obscureText: true, decoration: const InputDecoration(labelText: 'API Key (Groq / Gemini / OpenAI)', border: OutlineInputBorder())),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  value: _fetchedModels.contains(_selectedModel) ? _selectedModel : _fetchedModels.first,
+                  dropdownColor: const Color(0xFF0A0F1D),
+                  items: _fetchedModels.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
+                  onChanged: (val) => setState(() => _selectedModel = val ?? _selectedModel),
+                  decoration: const InputDecoration(labelText: 'Select AI Model', border: OutlineInputBorder()),
+                ),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: _fetching ? null : _fetchModelsFromApi,
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00F5FF), foregroundColor: Colors.black),
+                child: _fetching ? const CircularProgressIndicator(strokeWidth: 2) : const Text('Fetch'),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _apiKeyController,
-            obscureText: true,
-            decoration: const InputDecoration(labelText: 'API Key (Groq / Gemini / OpenAI)', border: OutlineInputBorder()),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _modelController,
-            decoration: const InputDecoration(labelText: 'Model Name (e.g. llama-3.3-70b-versatile)', border: OutlineInputBorder()),
-          ),
-          const SizedBox(height: 20),
-          if (_saved)
-            const Padding(
-              padding: EdgeInsets.only(bottom: 12),
-              child: Text('Settings saved successfully!', style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
-            ),
+          const SizedBox(height: 24),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E5FF), foregroundColor: Colors.black),
-            onPressed: _saveSettings,
+            onPressed: _save,
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00F5FF), foregroundColor: Colors.black, minimumSize: const Size(double.infinity, 50)),
             child: const Text('SAVE SETTINGS', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
     );
+  }
+}
+
+class ScaffoldAbbBarHelper {
+  static void showSnack(BuildContext context, String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 }

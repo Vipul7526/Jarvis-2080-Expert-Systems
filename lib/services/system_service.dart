@@ -4,11 +4,18 @@ class SystemService {
   static const MethodChannel _channel =
       MethodChannel('com.ultimate.jarvis/system');
 
+  static Future<void> init() async {}
+  static Future<void> requestPermissions() async {}
+
   static Future<Map<String, dynamic>> _map(String method,
       [Map<String, dynamic>? args]) async {
-    final result = await _channel.invokeMethod<dynamic>(method, args);
-    if (result is Map) return Map<String, dynamic>.from(result);
-    return <String, dynamic>{'status': result?.toString() ?? 'unknown'};
+    try {
+      final result = await _channel.invokeMethod<dynamic>(method, args);
+      if (result is Map) return Map<String, dynamic>.from(result);
+      return <String, dynamic>{'status': result?.toString() ?? 'unknown'};
+    } catch (e) {
+      return <String, dynamic>{'status': 'error', 'message': e.toString()};
+    }
   }
 
   static Future<Map<String, dynamic>> location() => _map('getLocation');
