@@ -1,7 +1,7 @@
 name: jarvis_assistant
-description: JARVIS 2080 cyberpunk Android assistant.
+description: "Advanced Cyberpunk Android Assistant J.A.R.V.I.S. 2080 Pro"
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.2.3
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -30,3 +30,7 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  fonts:
+    - family: Orbitron
+      fonts:
+        - asset: assets/fonts/Orbitron.ttf

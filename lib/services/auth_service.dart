@@ -37,13 +37,28 @@ class AuthService {
 
   static Future<bool> isLocked() async {
     final prefs = await getPrefs();
-    return prefs.getBool('is_locked') ?? (prefs.getBool(_onboardedKey) ?? false);
+    return prefs.getBool('is_locked') ??
+        (prefs.getBool(_onboardedKey) ?? false);
   }
 
   static Future<String?> simulateGoogleSignIn() async {
     await Future.delayed(const Duration(milliseconds: 600));
     return 'user.princesingh@gmail.com';
   }
+
+  Future<String?> get registeredEmail async {
+    final prefs = await getPrefs();
+    return prefs.getString(_emailKey);
+  }
+
+  static Future<void> completeSetupStatic({
+    required String email,
+    required String pin,
+    required String recoveryEmail,
+  }) =>
+      completeSetup(email: email, pin: pin, recoveryEmail: recoveryEmail);
+
+  static Future<bool> verifyPinStatic(String pin) => verifyPin(pin);
 
   static Future<void> completeSetup({
     required String email,
@@ -53,7 +68,8 @@ class AuthService {
     final prefs = await getPrefs();
     await prefs.setString(_emailKey, email);
     await prefs.setString(_pinKey, pin.trim());
-    await prefs.setString(_recoveryEmailKey, recoveryEmail.trim().toLowerCase());
+    await prefs.setString(
+        _recoveryEmailKey, recoveryEmail.trim().toLowerCase());
     await prefs.setBool(_onboardedKey, true);
     await prefs.setBool('is_locked', false);
   }
@@ -66,7 +82,9 @@ class AuthService {
 
   static Future<bool> promptBiometric() async {
     try {
-      return await _biometricChannel.invokeMethod<bool>('authenticateBiometric') ?? true;
+      return await _biometricChannel
+              .invokeMethod<bool>('authenticateBiometric') ??
+          true;
     } catch (_) {
       return true;
     }

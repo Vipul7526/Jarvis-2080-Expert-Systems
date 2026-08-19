@@ -26,6 +26,8 @@ open class MainActivity : FlutterFragmentActivity() {
             .setMethodCallHandler(NativeAuth(this))
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.ultimate.jarvis/system")
             .setMethodCallHandler(SystemBridge(this))
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.ultimate.jarvis/mesh")
+            .setMethodCallHandler(MeshBridge(this))
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.ultimate.jarvis/wake_word")
             .setMethodCallHandler { call, result ->
                 when (call.method) {

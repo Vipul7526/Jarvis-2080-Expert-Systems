@@ -8,17 +8,22 @@ class MeshRelayMessage {
 
   const MeshRelayMessage({required this.id, required this.envelope});
 
-  factory MeshRelayMessage.fromJson(Map<String, dynamic> json) => MeshRelayMessage(
+  factory MeshRelayMessage.fromJson(Map<String, dynamic> json) =>
+      MeshRelayMessage(
         id: int.tryParse('${json['id'] ?? 0}') ?? 0,
         envelope: '${json['envelope'] ?? ''}',
       );
 }
 
 class MeshRelayService {
-  static const String baseUrl = 'https://jarvisrecov-3mlp5xq9.manus.space/api/mesh';
+  static const String baseUrl =
+      'https://jarvisrecov-3mlp5xq9.manus.space/api/mesh';
   final http.Client _client = http.Client();
 
-  Future<void> register({required String deviceId, required String peerId, required String token}) async {
+  Future<void> register(
+      {required String deviceId,
+      required String peerId,
+      required String token}) async {
     await _request('POST', '/register', token: null, body: {
       'deviceId': deviceId,
       'peerId': peerId,
@@ -26,7 +31,11 @@ class MeshRelayService {
     });
   }
 
-  Future<void> send({required String fromDeviceId, required String toDeviceId, required String token, required Map<String, dynamic> envelope}) async {
+  Future<void> send(
+      {required String fromDeviceId,
+      required String toDeviceId,
+      required String token,
+      required Map<String, dynamic> envelope}) async {
     await _request('POST', '/send', token: token, body: {
       'fromDeviceId': fromDeviceId,
       'toDeviceId': toDeviceId,
@@ -35,18 +44,32 @@ class MeshRelayService {
     });
   }
 
-  Future<List<MeshRelayMessage>> poll({required String deviceId, required String peerId, required String token}) async {
+  Future<List<MeshRelayMessage>> poll(
+      {required String deviceId,
+      required String peerId,
+      required String token}) async {
     final response = await _request(
       'GET',
-      '/poll?${Uri(queryParameters: {'deviceId': deviceId, 'peerId': peerId}).query}',
+      '/poll?${Uri(queryParameters: {
+            'deviceId': deviceId,
+            'peerId': peerId
+          }).query}',
       token: token,
     );
     final raw = response['messages'];
     if (raw is! List) return const [];
-    return raw.whereType<Map>().map((item) => MeshRelayMessage.fromJson(Map<String, dynamic>.from(item))).toList();
+    return raw
+        .whereType<Map>()
+        .map((item) =>
+            MeshRelayMessage.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
   }
 
-  Future<void> acknowledge({required String deviceId, required String peerId, required String token, required List<int> messageIds}) async {
+  Future<void> acknowledge(
+      {required String deviceId,
+      required String peerId,
+      required String token,
+      required List<int> messageIds}) async {
     await _request('POST', '/ack', token: token, body: {
       'deviceId': deviceId,
       'peerId': peerId,
@@ -54,32 +77,46 @@ class MeshRelayService {
     });
   }
 
-  Future<void> revoke({required String deviceId, required String peerId, required String token}) async {
+  Future<void> revoke(
+      {required String deviceId,
+      required String peerId,
+      required String token}) async {
     await _request('POST', '/revoke', token: token, body: {
       'deviceId': deviceId,
       'peerId': peerId,
     });
   }
 
-  Future<Map<String, dynamic>> _request(String method, String path, {required String? token, Map<String, dynamic>? body}) async {
+  Future<Map<String, dynamic>> _request(String method, String path,
+      {required String? token, Map<String, dynamic>? body}) async {
     final uri = Uri.parse('$baseUrl$path');
     final headers = <String, String>{'Accept': 'application/json'};
     if (body != null) headers['Content-Type'] = 'application/json';
-    if (token != null && token.isNotEmpty) headers['Authorization'] = 'Bearer $token';
+    if (token != null && token.isNotEmpty)
+      headers['Authorization'] = 'Bearer $token';
     late http.Response response;
     if (method == 'GET') {
-      response = await _client.get(uri, headers: headers).timeout(const Duration(seconds: 20));
+      response = await _client
+          .get(uri, headers: headers)
+          .timeout(const Duration(seconds: 20));
     } else {
-      response = await _client.post(uri, headers: headers, body: jsonEncode(body ?? const <String, dynamic>{})).timeout(const Duration(seconds: 20));
+      response = await _client
+          .post(uri,
+              headers: headers,
+              body: jsonEncode(body ?? const <String, dynamic>{}))
+          .timeout(const Duration(seconds: 20));
     }
     dynamic decoded;
     try {
       decoded = jsonDecode(response.body);
     } catch (_) {
-      throw Exception('Mesh relay returned invalid JSON (${response.statusCode}).');
+      throw Exception(
+          'Mesh relay returned invalid JSON (${response.statusCode}).');
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      final error = decoded is Map ? '${decoded['error'] ?? 'HTTP ${response.statusCode}'}' : 'HTTP ${response.statusCode}';
+      final error = decoded is Map
+          ? '${decoded['error'] ?? 'HTTP ${response.statusCode}'}'
+          : 'HTTP ${response.statusCode}';
       throw Exception(error);
     }
     if (decoded is! Map) throw Exception('Unexpected mesh relay response.');
